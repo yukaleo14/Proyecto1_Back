@@ -49,10 +49,6 @@ USER node
 
 FROM node:20-alpine As production
 
-WORKDIR /usr/src/app
-
-COPY --chown=node:node package.json ./
-
 # Copy the bundled code from the build stage to the production image
 COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
 COPY --chown=node:node --from=build /usr/src/app/dist ./dist
@@ -60,4 +56,4 @@ COPY --chown=node:node --from=build /usr/src/app/dist ./dist
 EXPOSE 3000
 
 # Start the server using the production build
-CMD ["sh", "-c", "yarn run migration:run && node dist/src/main.js"]
+CMD [ "node", "dist/src/main.js" ]
