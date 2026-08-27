@@ -48,7 +48,7 @@ import { BusquedasModule } from './modules/gestion-documentos/busquedas/busqueda
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       // entities,
       migrationsRun: true, // 👈 Ejecuta migraciones pendientes automáticamente al iniciar
-      migrations: [__dirname + '/migrations/*{.ts,.js}'],
+      migrations: [__dirname + '/**/*.migration{.ts,.js}'],
       synchronize: false,  
       ssl:
         process.env.DB_SSL === 'true'
