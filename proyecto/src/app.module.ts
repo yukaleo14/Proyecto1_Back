@@ -47,6 +47,8 @@ import { BusquedasModule } from './modules/gestion-documentos/busquedas/busqueda
       // TypeOrmModule.forFeature([Entidad]) en tus módulos
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       // entities,
+      migrationsRun: true, // 👈 Ejecuta migraciones pendientes automáticamente al iniciar
+      migrations: [__dirname + '/migrations/*{.ts,.js}'],
       synchronize: false,  
       ssl:
         process.env.DB_SSL === 'true'
