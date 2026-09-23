@@ -56,6 +56,10 @@ export interface ProductoProps {
   presentacionValor?: number;
   /** Unidad de la presentación (ej. 'L', 'ml', 'kg', 'pack'). */
   presentacionUnidad?: string;
+  /** Instancia de Presentacion o texto (ej. "2L", "500ml"). */
+  presentacion?: Presentacion | string;
+  /** Indica si la denominación fue personalizada manualmente. Default: false. */
+  esDenominacionManual?: boolean;
 }
 
 @Entity('producto')
@@ -221,13 +225,24 @@ export class Producto {
   @Column({ type: 'varchar', length: 30, nullable: true })
   presentacionUnidad?: string;
 
+  /** Texto original de presentación si se especificó como string (ej. "2L") */
+  private presentacionTexto?: string;
+
+  // ========== DENOMINACIÓN MANUAL / AUTOMÁTICA ==========
+  /**
+   * Flag que indica si la denominación fue editada manualmente por el usuario.
+   * Si es false, se recalcula automáticamente como Marca + " " + Linea + " " + Presentacion.
+   */
+  @Column('boolean', { default: false, name: 'es_denominacion_manual' })
+  esDenominacionManual: boolean = false;
+
   // ========== CONSTRUCTORES & VALIDACIÓN DE INVARIANTES ==========
   constructor();
   constructor(props: ProductoProps);
   constructor(
     marca: Marca | number | string,
     linea: Linea | number | string,
-    denominacion: string,
+    presentacionODenominacion: Presentacion | string,
     costo: Costo | number,
     margen: Margen | number,
     stockMinimo: StockMinimo | number,
@@ -238,6 +253,10 @@ export class Producto {
     marca: Marca | number | string,
     linea: Linea | number | string,
     costo: Costo | number,
+    margen: Margen | number,
+    stockMinimo: StockMinimo | number,
+    stock?: number,
+  );
     margen: Margen | number,
     stockMinimo: StockMinimo | number,
     stock?: number,
@@ -263,7 +282,7 @@ export class Producto {
       args[0] !== null &&
       !(args[0] instanceof Marca || args[0] instanceof Linea)
     ) {
-      const props = args[0];
+      const props = args[0] as ProductoProps;
       marcaRaw = props.marca;
       lineaRaw = props.linea;
       denominacionRaw = props.denominacion;
@@ -271,6 +290,13 @@ export class Producto {
       margenRaw = props.margen !== undefined ? props.margen : props.porcentaje;
       stockMinimoRaw = props.stockMinimo;
       stockRaw = props.stock;
+      this.esDenominacionManual = props.esDenominacionManual ?? false;
+      if (props.presentacion !== undefined) {
+        this.asignarPresentacionInterna(props.presentacion);
+      } else if (props.presentacionValor !== undefined && props.presentacionUnidad !== undefined) {
+        this.presentacionValor = props.presentacionValor;
+        this.presentacionUnidad = props.presentacionUnidad;
+      }
       extraProps = props;
     } else {
       // Argumentos posicionales
@@ -288,10 +314,20 @@ export class Producto {
         stockMinimoRaw = args[5];
         stockRaw = args[6];
       } else {
-        // Formato estándar solicitado: (marca, linea, denominacion, costo, margen, stockMinimo, stock?)
+        // Formato estándar: (marca, linea, denominacionOPresentacion, costo, margen, stockMinimo, stock?)
         marcaRaw = args[0];
         lineaRaw = args[1];
-        denominacionRaw = args[2];
+        const arg2 = args[2];
+        // Si el tercer argumento es una Presentacion o texto tipo "2L"
+        if (
+          arg2 instanceof Presentacion ||
+          (typeof arg2 === 'string' && /^\d+(?:\.\d+)?\s*[a-zA-ZñÑ]+$/.test(arg2.trim()))
+        ) {
+          this.asignarPresentacionInterna(arg2);
+          denominacionRaw = undefined; // Se autogenerará
+        } else {
+          denominacionRaw = arg2;
+        }
         costoRaw = args[3];
         margenRaw = args[4];
         stockMinimoRaw = args[5];
@@ -299,20 +335,24 @@ export class Producto {
       }
     }
 
-    // 1. Validar campos obligatorios y formato de strings
-    this.validarCamposObligatorios(
-      marcaRaw,
-      lineaRaw,
-      denominacionRaw,
-      costoRaw,
-      margenRaw,
-      stockMinimoRaw,
-    );
+    // 1. Validar campos obligatorios numéricos y de relación
+    if (marcaRaw === undefined || marcaRaw === null) {
+      throw new DatosProductoInvalidosException('El campo marca es obligatorio.');
+    }
+    if (lineaRaw === undefined || lineaRaw === null) {
+      throw new DatosProductoInvalidosException('El campo linea es obligatorio.');
+    }
+    if (costoRaw === undefined || costoRaw === null) {
+      throw new DatosProductoInvalidosException('El campo costo es obligatorio.');
+    }
+    if (margenRaw === undefined || margenRaw === null) {
+      throw new DatosProductoInvalidosException('El campo margen es obligatorio.');
+    }
+    if (stockMinimoRaw === undefined || stockMinimoRaw === null) {
+      throw new DatosProductoInvalidosException('El campo stockMinimo es obligatorio.');
+    }
 
-    // 2. Asignar Denominación
-    this.denominacion = this.validarStringNoVacio(denominacionRaw, 'denominación');
-
-    // 3. Asignar Marca
+    // 2. Asignar Marca
     if (typeof marcaRaw === 'string') {
       const marcaStr = this.validarStringNoVacio(marcaRaw, 'marca');
       const m = new Marca();
@@ -378,6 +418,16 @@ export class Producto {
 
     // 8. Calcular precio inicial
     this.calcularPrecio();
+
+    // 9. Asignar o Autogenerar Denominación
+    if (denominacionRaw !== undefined && denominacionRaw !== null) {
+      this.denominacion = this.validarStringNoVacio(denominacionRaw, 'denominación');
+    } else {
+      this.denominacion = this.generarDenominacionAutomatica();
+      if (!this.denominacion) {
+        throw new DatosProductoInvalidosException('El campo denominacion es obligatorio.');
+      }
+    }
   }
 
   // ========== GETTERS / SETTERS ==========
@@ -476,13 +526,108 @@ export class Producto {
   }
 
   /**
-   * Actualiza la denominación garantizando que no esté vacía ni en blanco
+   * Actualiza la denominación garantizando que no esté vacía ni en blanco.
+   * Si se edita directamente, se marca como personalizada manualmente.
    */
   actualizarDenominacion(nuevaDenominacion: string): void {
-    this.denominacion = this.validarStringNoVacio(
-      nuevaDenominacion,
-      'denominación',
-    );
+    this.personalizarDenominacion(nuevaDenominacion);
+  }
+
+  // ========== DENOMINACIÓN AUTOMÁTICA & PERSONALIZADA ==========
+
+  /**
+   * Método de dominio: Genera la denominación automática concatenando Marca + " " + Linea + " " + Presentacion.
+   * Omite componentes vacíos y recorta espacios redundantes.
+   */
+  generarDenominacionAutomatica(): string {
+    const partes: string[] = [];
+    const marcaNombre = this.obtenerNombreMarca();
+    if (marcaNombre) partes.push(marcaNombre);
+
+    const lineaNombre = this.obtenerNombreLinea();
+    if (lineaNombre) partes.push(lineaNombre);
+
+    const presentacionTexto = this.obtenerTextoPresentacion();
+    if (presentacionTexto) partes.push(presentacionTexto);
+
+    return partes.join(' ').trim();
+  }
+
+  /**
+   * Método de dominio: Personaliza manualmente la denominación del producto.
+   * Establece esDenominacionManual = true para proteger el texto ante futuros cambios
+   * de marca, línea o presentación.
+   *
+   * @param nuevaDenominacion Texto personalizado no vacío.
+   */
+  personalizarDenominacion(nuevaDenominacion: string): void {
+    this.denominacion = this.validarStringNoVacio(nuevaDenominacion, 'denominación');
+    this.esDenominacionManual = true;
+  }
+
+  /**
+   * Restablece la denominación a modo automático (esDenominacionManual = false)
+   * y recalcula el nombre concatenando Marca + Línea + Presentación.
+   */
+  restablecerDenominacionAutomatica(): void {
+    this.esDenominacionManual = false;
+    this.denominacion = this.generarDenominacionAutomatica();
+  }
+
+  /**
+   * Método de negocio: Cambia la marca del producto.
+   * Si esDenominacionManual == false, regenera automáticamente la denominación.
+   */
+  cambiarMarca(nuevaMarca: Marca | string | number): void {
+    if (nuevaMarca === undefined || nuevaMarca === null) {
+      throw new DatosProductoInvalidosException('La marca es obligatoria.');
+    }
+    if (typeof nuevaMarca === 'string') {
+      const denominacion = this.validarStringNoVacio(nuevaMarca, 'marca');
+      const m = new Marca();
+      m.denominacion = denominacion;
+      this.marca = m;
+    } else if (typeof nuevaMarca === 'number') {
+      const m = new Marca();
+      m.id = nuevaMarca;
+      this.marca = m;
+      this.marcaId = nuevaMarca;
+    } else if (nuevaMarca instanceof Marca) {
+      this.marca = nuevaMarca;
+      this.marcaId = nuevaMarca.id;
+    }
+
+    if (!this.esDenominacionManual) {
+      this.denominacion = this.generarDenominacionAutomatica();
+    }
+  }
+
+  /**
+   * Método de negocio: Cambia la línea del producto.
+   * Si esDenominacionManual == false, regenera automáticamente la denominación.
+   */
+  cambiarLinea(nuevaLinea: Linea | string | number): void {
+    if (nuevaLinea === undefined || nuevaLinea === null) {
+      throw new DatosProductoInvalidosException('La línea es obligatoria.');
+    }
+    if (typeof nuevaLinea === 'string') {
+      const denominacion = this.validarStringNoVacio(nuevaLinea, 'línea');
+      const l = new Linea();
+      l.denominacion = denominacion;
+      this.linea = l;
+    } else if (typeof nuevaLinea === 'number') {
+      const l = new Linea();
+      l.id = nuevaLinea;
+      this.linea = l;
+      this.lineaId = nuevaLinea;
+    } else if (nuevaLinea instanceof Linea) {
+      this.linea = nuevaLinea;
+      this.lineaId = nuevaLinea.id;
+    }
+
+    if (!this.esDenominacionManual) {
+      this.denominacion = this.generarDenominacionAutomatica();
+    }
   }
 
   /**
@@ -506,31 +651,22 @@ export class Producto {
 
   /**
    * Método de negocio: Cambia la presentación del producto.
+   * Acepta una instancia de Presentacion o un texto (ej. "2L", "500ml").
+   * Si esDenominacionManual == false, regenera automáticamente la denominación.
    *
-   * Persiste el Value Object Presentacion en los campos presentacionValor y presentacionUnidad.
-   * Si la nueva presentación es idéntica a la actual, es una operación no-op (sin cambio de estado).
-   *
-   * @param nuevaPresentacion  Instancia válida de Presentacion con valor > 0 y unidad no vacía.
-   * @throws DatosProductoInvalidosException si la presentación es null/undefined o sus invariantes fallan.
+   * @param nuevaPresentacion Instancia válida de Presentacion o texto.
+   * @throws DatosProductoInvalidosException si la presentación es inválida o vacía.
    */
-  cambiarPresentacion(nuevaPresentacion: Presentacion): void {
+  cambiarPresentacion(nuevaPresentacion: Presentacion | string): void {
     if (nuevaPresentacion === undefined || nuevaPresentacion === null) {
       throw new DatosProductoInvalidosException('La presentación es obligatoria.');
     }
-    if (!(nuevaPresentacion instanceof Presentacion)) {
-      throw new DatosProductoInvalidosException(
-        'El argumento debe ser una instancia válida de Presentacion.',
-      );
-    }
 
-    // Si la presentación no cambia, no hay efecto
-    const presentacionActual = this.getPresentacion();
-    if (presentacionActual && presentacionActual.equals(nuevaPresentacion)) {
-      return;
-    }
+    this.asignarPresentacionInterna(nuevaPresentacion);
 
-    this.presentacionValor = nuevaPresentacion.getValue();
-    this.presentacionUnidad = nuevaPresentacion.getUnidad();
+    if (!this.esDenominacionManual) {
+      this.denominacion = this.generarDenominacionAutomatica();
+    }
   }
 
   /**
@@ -547,6 +683,64 @@ export class Producto {
       return null;
     }
     return Presentacion.fromPersistence(this.presentacionValor, this.presentacionUnidad);
+  }
+
+  private asignarPresentacionInterna(pres: Presentacion | string): void {
+    if (typeof pres === 'string') {
+      const str = pres.trim();
+      const match = str.match(/^(\d+(?:\.\d+)?)\s*([a-zA-ZñÑ]+)$/);
+      if (!match) {
+        throw new DatosProductoInvalidosException(
+          'Formato de presentación inválido (ej. "2L", "500ml", "1.5L").',
+        );
+      }
+      const valor = parseFloat(match[1]);
+      const unidad = match[2];
+      const vo = new Presentacion(valor, unidad);
+      this.presentacionValor = vo.getValue();
+      this.presentacionUnidad = vo.getUnidad();
+      this.presentacionTexto = str;
+    } else if (pres instanceof Presentacion) {
+      this.presentacionValor = pres.getValue();
+      this.presentacionUnidad = pres.getUnidad();
+      this.presentacionTexto = undefined;
+    } else {
+      throw new DatosProductoInvalidosException(
+        'El argumento debe ser una instancia válida de Presentacion o texto (ej. "2L").',
+      );
+    }
+  }
+
+  private obtenerNombreMarca(): string {
+    if (!this.marca) return '';
+    if (typeof this.marca === 'string') return this.marca.trim();
+    if (typeof this.marca === 'object' && 'denominacion' in this.marca) {
+      return (this.marca.denominacion ?? '').trim();
+    }
+    return '';
+  }
+
+  private obtenerNombreLinea(): string {
+    if (!this.linea) return '';
+    if (typeof this.linea === 'string') return this.linea.trim();
+    if (typeof this.linea === 'object' && 'denominacion' in this.linea) {
+      return (this.linea.denominacion ?? '').trim();
+    }
+    return '';
+  }
+
+  private obtenerTextoPresentacion(): string {
+    if (this.presentacionTexto) {
+      return this.presentacionTexto.trim();
+    }
+    if (this.presentacionValor != null && this.presentacionUnidad != null) {
+      const unidad = this.presentacionUnidad.trim();
+      if (/^[a-zA-Z]+$/.test(unidad) && unidad.length <= 4) {
+        return `${this.presentacionValor}${unidad}`;
+      }
+      return `${this.presentacionValor} ${unidad}`;
+    }
+    return '';
   }
 
   // ========== MÉTODOS PRIVADOS DE VALIDACIÓN ==========

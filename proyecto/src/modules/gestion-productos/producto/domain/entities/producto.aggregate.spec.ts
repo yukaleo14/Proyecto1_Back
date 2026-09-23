@@ -578,5 +578,160 @@ describe('Agregado Producto y Value Objects (DDD)', () => {
         expect(() => prod.ajustarStock(5, '   ')).toThrow(DatosProductoInvalidosException);
       });
     });
+
+    describe('Concatenación Automática de Denominación y Flag esDenominacionManual', () => {
+      it('Criterio de Aceptación 1: Producto creado con Marca="Coca-Cola", Línea="Gaseosas", Presentación="2L" se guarda como "Coca-Cola Gaseosas 2L"', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+
+        expect(prod.denominacion).toBe('Coca-Cola Gaseosas 2L');
+        expect(prod.esDenominacionManual).toBe(false);
+      });
+
+      it('Criterio de Aceptación 1 (con entidades Marca y Linea): genera "Coca-Cola Gaseosas 2L"', () => {
+        const prod = new Producto({
+          marca: marcaValida, // denominacion: 'Coca-Cola'
+          linea: lineaValida, // denominacion: 'Gaseosas'
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+
+        expect(prod.denominacion).toBe('Coca-Cola Gaseosas 2L');
+        expect(prod.esDenominacionManual).toBe(false);
+      });
+
+      it('generarDenominacionAutomatica() concatena correctamente Marca + " " + Linea + " " + Presentacion', () => {
+        const prod = new Producto({
+          marca: 'Pepsi',
+          linea: 'Gaseosas',
+          presentacion: '1.5L',
+          costo: 80,
+          margen: 15,
+          stockMinimo: 10,
+        });
+
+        expect(prod.generarDenominacionAutomatica()).toBe('Pepsi Gaseosas 1.5L');
+      });
+
+      it('si esDenominacionManual == false, cambiarMarca() regenera automáticamente la denominación', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+        expect(prod.denominacion).toBe('Coca-Cola Gaseosas 2L');
+
+        prod.cambiarMarca('Fanta');
+        expect(prod.denominacion).toBe('Fanta Gaseosas 2L');
+      });
+
+      it('si esDenominacionManual == false, cambiarLinea() regenera automáticamente la denominación', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+
+        prod.cambiarLinea('Bebidas Sin Gas');
+        expect(prod.denominacion).toBe('Coca-Cola Bebidas Sin Gas 2L');
+      });
+
+      it('si esDenominacionManual == false, cambiarPresentacion() regenera automáticamente la denominación', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+
+        prod.cambiarPresentacion('500ml');
+        expect(prod.denominacion).toBe('Coca-Cola Gaseosas 500ml');
+      });
+
+      it('Criterio de Aceptación 2: Al editar manualmente a "Mi Producto Especial", cambios posteriores en la marca no alteran dicho nombre', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+        expect(prod.denominacion).toBe('Coca-Cola Gaseosas 2L');
+
+        // Personalización manual
+        prod.personalizarDenominacion('Mi Producto Especial');
+        expect(prod.denominacion).toBe('Mi Producto Especial');
+        expect(prod.esDenominacionManual).toBe(true);
+
+        // Cambios posteriores en marca
+        prod.cambiarMarca('Pepsi');
+        expect(prod.denominacion).toBe('Mi Producto Especial');
+
+        // Cambios posteriores en línea
+        prod.cambiarLinea('Aguas Saborizadas');
+        expect(prod.denominacion).toBe('Mi Producto Especial');
+
+        // Cambios posteriores en presentación
+        prod.cambiarPresentacion('1.5L');
+        expect(prod.denominacion).toBe('Mi Producto Especial');
+      });
+
+      it('restablecerDenominacionAutomatica() vuelve a activar la regeneración automática', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+
+        prod.personalizarDenominacion('Nombre Personalizado');
+        expect(prod.esDenominacionManual).toBe(true);
+
+        prod.restablecerDenominacionAutomatica();
+        expect(prod.esDenominacionManual).toBe(false);
+        expect(prod.denominacion).toBe('Coca-Cola Gaseosas 2L');
+
+        prod.cambiarMarca('Sprite');
+        expect(prod.denominacion).toBe('Sprite Gaseosas 2L');
+      });
+
+      it('personalizarDenominacion() debe arrojar DatosProductoInvalidosException si el texto es vacío o espacios', () => {
+        const prod = new Producto({
+          marca: 'Coca-Cola',
+          linea: 'Gaseosas',
+          presentacion: '2L',
+          costo: 100,
+          margen: 20,
+          stockMinimo: 5,
+        });
+
+        expect(() => prod.personalizarDenominacion('')).toThrow(
+          DatosProductoInvalidosException,
+        );
+        expect(() => prod.personalizarDenominacion('    ')).toThrow(
+          DatosProductoInvalidosException,
+        );
+      });
+    });
   });
 });
+

@@ -104,6 +104,8 @@ export class ProductoMapper {
         entity.presentacionValor != null && entity.presentacionUnidad != null
           ? `${entity.presentacionValor} ${entity.presentacionUnidad}`
           : null,
+      // ========== DENOMINACIÓN MANUAL / AUTOMÁTICA ==========
+      esDenominacionManual: entity.esDenominacionManual ?? false,
     };
   }
 

@@ -166,4 +166,9 @@ export class ProductoDto {
   @IsString()
   presentacionDescripcion?: string | null;
 
+  // ========== DENOMINACIÓN MANUAL / AUTOMÁTICA ==========
+  @ApiPropertyOptional({ example: false, description: 'Indica si la denominación fue editada manualmente' })
+  @IsBoolean()
+  esDenominacionManual?: boolean;
 }
+
