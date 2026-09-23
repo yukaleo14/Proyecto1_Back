@@ -214,7 +214,7 @@ export class Producto {
    * Columna que almacena el valor numérico del VO Presentacion.
    * Ej: 1.5 para "1.5 L", 354 para "354 ml", 6 para "6 pack".
    */
-  @Column({ type: 'decimal', precision: 12, scale: 3, nullable: true })
+  @Column({ name: 'presentacion_valor', type: 'decimal', precision: 12, scale: 3, nullable: true })
   presentacionValor?: number;
 
   /**
@@ -222,7 +222,7 @@ export class Producto {
    * Acepta los valores del enum UnidadPresentacion o cualquier string corto.
    * Ej: 'L', 'ml', 'kg', 'pack'.
    */
-  @Column({ type: 'varchar', length: 30, nullable: true })
+  @Column({ name: 'presentacion_unidad', type: 'varchar', length: 30, nullable: true })
   presentacionUnidad?: string;
 
   /** Texto original de presentación si se especificó como string (ej. "2L") */
