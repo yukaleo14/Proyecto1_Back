@@ -164,6 +164,25 @@ yarn migration:revert   # Revertir última migración
 
 ---
 
+## Ejecucion de seeds
+
+Primero se debe levantar la base de datos y levantar la aplicacion
+```bash
+docker-compose up -d
+yarn start:dev
+``` 
+
+Luego se puede, a traves de el navegador, ingresar a la url 
+` http://localhost:3000/api/seed-all/execute `
+para ejecutar todos los seeds. 
+
+En caso de modificar datos dentro de los archivos seed, se debe reiniciar el contenedor de la base de datos y luego volver a ingresar la url anterior
+```bash
+docker-compose down -v
+docker-compose up -d 
+``` 
+
+
 ## Documentación API
 
 Una vez levantada la aplicación, la documentación Swagger está disponible en:
