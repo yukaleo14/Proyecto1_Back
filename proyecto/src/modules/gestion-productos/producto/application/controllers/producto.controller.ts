@@ -11,8 +11,10 @@ import {
   Query,
   UsePipes,
   UseGuards,
+  UseFilters,
 } from '@nestjs/common';
 
+import { DomainExceptionFilter } from 'src/modules/common/filters/domain-exception.filter';
 import { CreateProductoDto } from '../../dto/create-producto.dto';
 import { UpdateProductoDto } from '../../dto/update-producto.dto';
 import { NormalizeDenominacionPipe } from 'src/modules/common/pipes/normalize-denominations.pipe';
@@ -36,6 +38,7 @@ import { ProductoService } from '../services/producto.service';
 @ApiTags('Gestion Productos')
 @Controller('producto')
 @UseGuards(AuthGuard)
+@UseFilters(DomainExceptionFilter)
 export class ProductoController {
   private readonly logger = new Logger(ProductoController.name);
   constructor(private readonly service: ProductoService) {}

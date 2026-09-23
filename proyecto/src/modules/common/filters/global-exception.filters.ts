@@ -20,6 +20,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
+        : exception?.name === 'DatosProductoInvalidosException'
+        ? HttpStatus.BAD_REQUEST
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
     // 🔥 LOGS SUPER DETALLADOS 🔥
