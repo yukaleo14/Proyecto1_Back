@@ -18,8 +18,29 @@ export class ProductoRepository implements IProductoRepository {
   constructor(
     private readonly persistenceService: ProductoPersistenceAdapter,
   ) {}
-  findByIds(ids: number[]): Promise<Producto[]> {
-    throw new Error('Method not implemented.');
+  async findByIds(ids: number[]): Promise<Producto[]> {
+    return this.persistenceService.findByIds(ids);
+  }
+
+  // ── Métodos para actualización masiva de precios ─────────────────────────
+
+  async findTodosActivos(): Promise<Producto[]> {
+    return this.persistenceService.findTodosActivos();
+  }
+
+  async findActivosByLineaId(lineaId: number): Promise<Producto[]> {
+    return this.persistenceService.findActivosByLineaId(lineaId);
+  }
+
+  async findActivosBySuperLineaId(superLineaId: number): Promise<Producto[]> {
+    return this.persistenceService.findActivosBySuperLineaId(superLineaId);
+  }
+
+  async actualizarPrecioMasivo(
+    actualizaciones: { id: number; precio: number }[],
+    manager: import('typeorm').EntityManager,
+  ): Promise<void> {
+    return this.persistenceService.actualizarPrecioMasivo(actualizaciones, manager);
   }
   
 
