@@ -25,7 +25,7 @@ import { UnidadPresentacion } from '../enums/unidad-presentacion.enum';
 export interface ProductoProps {
   marca: Marca | number | string;
   linea: Linea | number | string;
-  denominacion: string;
+  denominacion?: string;
   costo: Costo | number;
   margen?: Margen | number;
   porcentaje?: Margen | number;

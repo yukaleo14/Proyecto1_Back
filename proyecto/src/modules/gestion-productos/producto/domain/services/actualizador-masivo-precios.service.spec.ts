@@ -164,7 +164,7 @@ describe('ActualizadorMasivoPreciosService', () => {
 
     it('el mensaje de error identifica al producto inválido', async () => {
       const productos = [makeProducto({ id: 5, denominacion: 'ProductoX', precio: 10 })];
-      (mockRepository.findTodosActivos as jest.Mock).mockResolvedValue(productos);
+      (mockRepository.findActivosByLineaId as jest.Mock).mockResolvedValue(productos);
 
       let error: OperacionInvalidaException | undefined;
       try {
