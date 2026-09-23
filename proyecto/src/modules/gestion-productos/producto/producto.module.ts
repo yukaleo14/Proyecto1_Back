@@ -21,6 +21,9 @@ import { ProductoIntrinsicValidationService } from './domain/services/producto-i
 import { ProductoDeletePolicy } from './application/policies/producto-delete.policy';
 
 
+import { ProductoQueryController } from './application/controllers/producto-query.controller';
+import { ProductoQueryService } from './application/services/producto-query.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([Producto]),
@@ -31,10 +34,11 @@ import { ProductoDeletePolicy } from './application/policies/producto-delete.pol
     UsuarioModule,
   ],
 
-  controllers: [ProductoController],
+  controllers: [ProductoController, ProductoQueryController],
   
   providers: [
     ProductoService,
+    ProductoQueryService,
     ProductoIntrinsicValidationService,
     ProductoValidationService,
     ProductoRelatedEntitiesValidator,
@@ -59,6 +63,7 @@ import { ProductoDeletePolicy } from './application/policies/producto-delete.pol
   exports: [
     TypeOrmModule,
     ProductoService,
+    ProductoQueryService,
     ProductoPersistenceAdapter,
     'IProductoRepository',
   ],
