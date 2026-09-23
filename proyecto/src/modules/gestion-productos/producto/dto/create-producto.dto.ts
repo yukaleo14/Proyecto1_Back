@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsInt,
   IsEnum,
+  IsPositive,
 } from 'class-validator';
 import { AlicuotaIva } from 'src/modules/organizacion/enums/alicuota-iva.enum';
 
@@ -125,5 +126,23 @@ export class CreateProductoDto {
   @IsInt({ message: 'El usuarioCreatedId debe ser un número entero.' })
   usuarioCreatedId: number;
 
+  // ========== PRESENTACIÓN ==========
+  /**
+   * Valor numérico de la presentación (ej. 1.5 para 1.5 L, 354 para 354 ml).
+   * Debe ser estrictamente mayor a 0.
+   */
+  @IsOptional()
+  @IsNumber({}, { message: 'El valor de la presentación debe ser un número.' })
+  @IsPositive({ message: 'El valor de la presentación debe ser mayor a 0.' })
+  presentacionValor?: number;
+
+  /**
+   * Unidad de la presentación (ej. 'L', 'ml', 'kg', 'pack').
+   * Debe ser un string no vacío.
+   */
+  @IsOptional()
+  @IsString({ message: 'La unidad de la presentación debe ser un texto.' })
+  @IsNotEmpty({ message: 'La unidad de la presentación no puede estar vacía.' })
+  presentacionUnidad?: string;
 
 }

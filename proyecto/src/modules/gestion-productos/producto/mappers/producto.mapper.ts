@@ -97,9 +97,13 @@ export class ProductoMapper {
       cantidadPorPack: entity.cantidadPorPack ?? 0,
       sistema: entity.sistema,
       codigoReferencia: entity.codigoReferencia ?? '',
-
-    
-      
+      // ========== PRESENTACIÓN ==========
+      presentacionValor: entity.presentacionValor ?? null,
+      presentacionUnidad: entity.presentacionUnidad ?? null,
+      presentacionDescripcion:
+        entity.presentacionValor != null && entity.presentacionUnidad != null
+          ? `${entity.presentacionValor} ${entity.presentacionUnidad}`
+          : null,
     };
   }
 

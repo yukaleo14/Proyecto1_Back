@@ -18,8 +18,9 @@ import { MonetarioColumn } from 'src/modules/common/decorators/monetario-column.
 import { CantidadColumn } from 'src/modules/common/decorators/cantidad-column.decorator';
 import { PorcentajeColumn } from 'src/modules/common/decorators/porcentaje-column.decorator';
 import { Proveedor } from 'src/modules/organizacion/proveedor/domain/entities/proveedor.entity';
-import { Costo, StockMinimo, Margen } from '../value-objects';
+import { Costo, StockMinimo, Margen, Presentacion } from '../value-objects';
 import { DatosProductoInvalidosException } from '../exceptions/datos-producto-invalidos.exception';
+import { UnidadPresentacion } from '../enums/unidad-presentacion.enum';
 
 export interface ProductoProps {
   marca: Marca | number | string;
@@ -51,6 +52,10 @@ export interface ProductoProps {
   proveedor?: Proveedor;
   proveedorId?: number;
   usuarioCreated?: Usuario;
+  /** Valor numérico de la presentación (ej. 1.5 para 1.5 L). Debe ser > 0. */
+  presentacionValor?: number;
+  /** Unidad de la presentación (ej. 'L', 'ml', 'kg', 'pack'). */
+  presentacionUnidad?: string;
 }
 
 @Entity('producto')
@@ -199,6 +204,22 @@ export class Producto {
 
   @Column({ type: 'text', nullable: true })
   codigoReferencia?: string | null;
+
+  // ========== PRESENTACION (Value Object compuesto en dos columnas) ==========
+  /**
+   * Columna que almacena el valor numérico del VO Presentacion.
+   * Ej: 1.5 para "1.5 L", 354 para "354 ml", 6 para "6 pack".
+   */
+  @Column({ type: 'decimal', precision: 12, scale: 3, nullable: true })
+  presentacionValor?: number;
+
+  /**
+   * Columna que almacena la unidad del VO Presentacion.
+   * Acepta los valores del enum UnidadPresentacion o cualquier string corto.
+   * Ej: 'L', 'ml', 'kg', 'pack'.
+   */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  presentacionUnidad?: string;
 
   // ========== CONSTRUCTORES & VALIDACIÓN DE INVARIANTES ==========
   constructor();
@@ -483,7 +504,53 @@ export class Producto {
     this.stock = nuevoStock;
   }
 
+  /**
+   * Método de negocio: Cambia la presentación del producto.
+   *
+   * Persiste el Value Object Presentacion en los campos presentacionValor y presentacionUnidad.
+   * Si la nueva presentación es idéntica a la actual, es una operación no-op (sin cambio de estado).
+   *
+   * @param nuevaPresentacion  Instancia válida de Presentacion con valor > 0 y unidad no vacía.
+   * @throws DatosProductoInvalidosException si la presentación es null/undefined o sus invariantes fallan.
+   */
+  cambiarPresentacion(nuevaPresentacion: Presentacion): void {
+    if (nuevaPresentacion === undefined || nuevaPresentacion === null) {
+      throw new DatosProductoInvalidosException('La presentación es obligatoria.');
+    }
+    if (!(nuevaPresentacion instanceof Presentacion)) {
+      throw new DatosProductoInvalidosException(
+        'El argumento debe ser una instancia válida de Presentacion.',
+      );
+    }
+
+    // Si la presentación no cambia, no hay efecto
+    const presentacionActual = this.getPresentacion();
+    if (presentacionActual && presentacionActual.equals(nuevaPresentacion)) {
+      return;
+    }
+
+    this.presentacionValor = nuevaPresentacion.getValue();
+    this.presentacionUnidad = nuevaPresentacion.getUnidad();
+  }
+
+  /**
+   * Devuelve el Value Object Presentacion reconstituido desde la persistencia.
+   * Retorna null si el producto no tiene presentación asignada.
+   */
+  getPresentacion(): Presentacion | null {
+    if (
+      this.presentacionValor === undefined ||
+      this.presentacionValor === null ||
+      this.presentacionUnidad === undefined ||
+      this.presentacionUnidad === null
+    ) {
+      return null;
+    }
+    return Presentacion.fromPersistence(this.presentacionValor, this.presentacionUnidad);
+  }
+
   // ========== MÉTODOS PRIVADOS DE VALIDACIÓN ==========
+
   private validarCamposObligatorios(
     marca: any,
     linea: any,

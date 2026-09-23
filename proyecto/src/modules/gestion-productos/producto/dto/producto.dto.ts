@@ -150,4 +150,20 @@ export class ProductoDto {
   @IsString()
   codigoReferencia?: string;
 
+  // ========== PRESENTACIÓN ==========
+  /** Valor numérico de la presentación (ej. 1.5 para 1.5 L). Null si no tiene presentación. */
+  @ApiPropertyOptional({ example: 1.5 })
+  @IsNumber()
+  presentacionValor?: number | null;
+
+  /** Unidad de la presentación (ej. 'L', 'ml', 'kg', 'pack'). Null si no tiene presentación. */
+  @ApiPropertyOptional({ example: 'L' })
+  @IsString()
+  presentacionUnidad?: string | null;
+
+  /** Descripción legible de la presentación (ej. '1.5 L'). Null si no tiene presentación. */
+  @ApiPropertyOptional({ example: '1.5 L' })
+  @IsString()
+  presentacionDescripcion?: string | null;
+
 }
