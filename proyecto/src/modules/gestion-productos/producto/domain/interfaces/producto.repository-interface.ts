@@ -80,4 +80,27 @@ export interface IProductoRepository {
   existsProductosActivosByLinea(lineaId: number): Promise<boolean>;
 
   findByIds(ids: number[]): Promise<Producto[]>;
+
+  // ── Consultas para actualización masiva de precios ──────────────────────
+  /** Todos los productos activos (sin deletedAt) */
+  findTodosActivos(): Promise<Producto[]>;
+
+  /** Productos activos que pertenecen a una Línea específica */
+  findActivosByLineaId(lineaId: number): Promise<Producto[]>;
+
+  /**
+   * Productos activos cuya Línea pertenece a una SuperLínea específica.
+   * Requiere JOIN a la tabla linea filtrando por super_linea_id.
+   */
+  findActivosBySuperLineaId(superLineaId: number): Promise<Producto[]>;
+
+  /**
+   * Persiste los nuevos precios en lote dentro de la transacción activa.
+   * @param actualizaciones Lista de { id, precio } a guardar.
+   * @param manager EntityManager transaccional proporcionado por el llamador.
+   */
+  actualizarPrecioMasivo(
+    actualizaciones: { id: number; precio: number }[],
+    manager: import('typeorm').EntityManager,
+  ): Promise<void>;
 }

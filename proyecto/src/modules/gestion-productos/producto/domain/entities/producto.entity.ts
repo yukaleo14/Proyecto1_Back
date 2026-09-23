@@ -257,10 +257,6 @@ export class Producto {
     stockMinimo: StockMinimo | number,
     stock?: number,
   );
-    margen: Margen | number,
-    stockMinimo: StockMinimo | number,
-    stock?: number,
-  );
   constructor(...args: any[]) {
     // Si se invoca sin argumentos (ej. TypeORM hidratando desde la base de datos), no aplicar validaciones
     if (args.length === 0) {
@@ -713,7 +709,7 @@ export class Producto {
 
   private obtenerNombreMarca(): string {
     if (!this.marca) return '';
-    if (typeof this.marca === 'string') return this.marca.trim();
+    if (typeof this.marca === 'string') return (this.marca as string).trim();
     if (typeof this.marca === 'object' && 'denominacion' in this.marca) {
       return (this.marca.denominacion ?? '').trim();
     }
@@ -722,7 +718,7 @@ export class Producto {
 
   private obtenerNombreLinea(): string {
     if (!this.linea) return '';
-    if (typeof this.linea === 'string') return this.linea.trim();
+    if (typeof this.linea === 'string') return (this.linea as string).trim();
     if (typeof this.linea === 'object' && 'denominacion' in this.linea) {
       return (this.linea.denominacion ?? '').trim();
     }

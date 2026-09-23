@@ -510,5 +510,85 @@ export class ProductoPersistenceAdapter implements IProductoRepository {
     }
   }
 
+
+  // ── Métodos para actualización masiva de precios ────────────────────────
+
+  /**
+   * Devuelve todos los productos activos (sin soft-delete).
+   */
+  async findTodosActivos(): Promise<Producto[]> {
+    try {
+      return await this.repository
+        .createQueryBuilder('producto')
+        .where('producto.deletedAt IS NULL')
+        .select(['producto.id', 'producto.denominacion', 'producto.precio', 'producto.lineaId'])
+        .getMany();
+    } catch (error) {
+      this.logger.error('Error al obtener productos activos:', error);
+      throw new DatabaseConnectionException('Error al conectar con la base de datos.');
+    }
+  }
+
+  /**
+   * Devuelve los productos activos que pertenecen a la Línea indicada.
+   */
+  async findActivosByLineaId(lineaId: number): Promise<Producto[]> {
+    try {
+      return await this.repository
+        .createQueryBuilder('producto')
+        .where('producto.deletedAt IS NULL')
+        .andWhere('producto.lineaId = :lineaId', { lineaId })
+        .select(['producto.id', 'producto.denominacion', 'producto.precio', 'producto.lineaId'])
+        .getMany();
+    } catch (error) {
+      this.logger.error(`Error al obtener productos activos de línea ${lineaId}:`, error);
+      throw new DatabaseConnectionException('Error al conectar con la base de datos.');
+    }
+  }
+
+  /**
+   * Devuelve los productos activos cuya Línea pertenece a la SuperLínea indicada.
+   */
+  async findActivosBySuperLineaId(superLineaId: number): Promise<Producto[]> {
+    try {
+      return await this.repository
+        .createQueryBuilder('producto')
+        .innerJoin('producto.linea', 'linea')
+        .where('producto.deletedAt IS NULL')
+        .andWhere('linea.superLineaId = :superLineaId', { superLineaId })
+        .select([
+          'producto.id',
+          'producto.denominacion',
+          'producto.precio',
+          'producto.lineaId',
+        ])
+        .addSelect('linea.superLineaId')
+        .getMany();
+    } catch (error) {
+      this.logger.error(`Error al obtener productos de super-línea ${superLineaId}:`, error);
+      throw new DatabaseConnectionException('Error al conectar con la base de datos.');
+    }
+  }
+
+  /**
+   * Persiste los nuevos precios en lote dentro de la transacción proporcionada.
+   * @param actualizaciones Array de { id, precio } a persistir.
+   * @param manager EntityManager transaccional del llamador.
+   */
+  async actualizarPrecioMasivo(
+    actualizaciones: { id: number; precio: number }[],
+    manager: import('typeorm').EntityManager,
+  ): Promise<void> {
+    try {
+      await Promise.all(
+        actualizaciones.map(({ id, precio }) =>
+          manager.update(Producto, id, { precio }),
+        ),
+      );
+    } catch (error) {
+      this.logger.error('Error al actualizar precios en lote:', error);
+      throw new DatabaseConnectionException('Error al persistir los precios actualizados.');
+    }
+  }
 }
 
