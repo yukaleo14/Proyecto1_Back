@@ -25,7 +25,7 @@ import { UnidadPresentacion } from '../enums/unidad-presentacion.enum';
 export interface ProductoProps {
   marca: Marca | number | string;
   linea: Linea | number | string;
-  denominacion: string;
+  denominacion?: string;
   costo: Costo | number;
   margen?: Margen | number;
   porcentaje?: Margen | number;
@@ -257,10 +257,6 @@ export class Producto {
     stockMinimo: StockMinimo | number,
     stock?: number,
   );
-    margen: Margen | number,
-    stockMinimo: StockMinimo | number,
-    stock?: number,
-  );
   constructor(...args: any[]) {
     // Si se invoca sin argumentos (ej. TypeORM hidratando desde la base de datos), no aplicar validaciones
     if (args.length === 0) {
@@ -420,7 +416,10 @@ export class Producto {
     this.calcularPrecio();
 
     // 9. Asignar o Autogenerar Denominación
-    if (denominacionRaw !== undefined && denominacionRaw !== null) {
+    if (denominacionRaw === null) {
+      throw new DatosProductoInvalidosException('El campo denominacion es obligatorio.');
+    }
+    if (denominacionRaw !== undefined) {
       this.denominacion = this.validarStringNoVacio(denominacionRaw, 'denominación');
     } else {
       this.denominacion = this.generarDenominacionAutomatica();
@@ -713,7 +712,7 @@ export class Producto {
 
   private obtenerNombreMarca(): string {
     if (!this.marca) return '';
-    if (typeof this.marca === 'string') return this.marca.trim();
+    if (typeof this.marca === 'string') return this.marca;
     if (typeof this.marca === 'object' && 'denominacion' in this.marca) {
       return (this.marca.denominacion ?? '').trim();
     }
@@ -722,7 +721,7 @@ export class Producto {
 
   private obtenerNombreLinea(): string {
     if (!this.linea) return '';
-    if (typeof this.linea === 'string') return this.linea.trim();
+    if (typeof this.linea === 'string') return this.linea;
     if (typeof this.linea === 'object' && 'denominacion' in this.linea) {
       return (this.linea.denominacion ?? '').trim();
     }
