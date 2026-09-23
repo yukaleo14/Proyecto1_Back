@@ -25,10 +25,13 @@ import { LineaService } from '../services/linea.service';
 import { CreateLineaDto } from '../../dto/create-linea.dto';
 import { LineaDto } from '../../dto/linea.dto';
 import { UpdateLineaDto } from '../../dto/update-linea.dto';
+import { DomainExceptionFilter } from 'src/modules/common/filters/domain-exception.filter';
+import { UseFilters } from '@nestjs/common';
 
 @ApiTags('Gestion Productos')
 @Controller('linea')
 @UseGuards(AuthGuard)
+@UseFilters(DomainExceptionFilter)
 export class LineaController {
   private readonly logger = new Logger(LineaController.name);
   constructor(private readonly service: LineaService) {}

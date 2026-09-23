@@ -45,4 +45,12 @@ export class CreateLineaDto {
   })
   @IsOptional()
   deletedAt: string | null;
+
+  @ApiProperty({
+    example: 1,
+    description: 'ID de la SuperLínea obligatoria a la cual pertenece la Línea.',
+  })
+  @IsNotEmpty({ message: 'La super línea es obligatoria.' })
+  @IsInt({ message: 'El superLineaId debe ser un número entero.' })
+  superLineaId: number;
 }
