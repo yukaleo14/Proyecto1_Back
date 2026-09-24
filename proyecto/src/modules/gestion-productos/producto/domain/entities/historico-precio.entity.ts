@@ -29,7 +29,7 @@ export class HistoricoPrecio {
   usuarioId: number;
 
   @Column('decimal', { precision: 12, scale: 2, name: 'precio_anterior', nullable: true })
-  precioAnterior: number;
+  precioAnterior: number | null;
 
   @Column('decimal', { precision: 12, scale: 2, name: 'precio_nuevo' })
   precioNuevo: number;

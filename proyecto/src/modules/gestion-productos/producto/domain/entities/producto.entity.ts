@@ -508,6 +508,21 @@ export class Producto {
   }
 
   /**
+   * Actualiza el precio directamente y recalibra el margen para mantener la invariante
+   * Precio = Costo * (1 + Margen / 100).
+   */
+  actualizarPrecio(nuevoPrecio: number): void {
+    if (nuevoPrecio <= 0) {
+      throw new DatosProductoInvalidosException('El precio resultante debe ser mayor a 0.');
+    }
+    this.precio = +nuevoPrecio.toFixed(2);
+    
+    if (this.costo && this.costo > 0) {
+      this.porcentaje = +(((this.precio / this.costo) - 1) * 100).toFixed(2);
+    }
+  }
+
+  /**
    * Actualiza el stock mínimo garantizando la invariante (entero >= 0)
    */
   actualizarStockMinimo(nuevoStockMinimo: StockMinimo | number): void {

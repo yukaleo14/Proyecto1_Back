@@ -95,7 +95,7 @@ export class ActualizadorMasivoPreciosService {
   ): Promise<ResultadoSimulacionDto[]> {
     this.logger.log(`[Masivo] Ajuste porcentual global: ${porcentaje}%`);
     const productos = await this.productoRepository.findTodosActivos();
-    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje);
+    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje, _usuarioId);
   }
 
   /**
@@ -112,7 +112,7 @@ export class ActualizadorMasivoPreciosService {
   ): Promise<ResultadoSimulacionDto[]> {
     this.logger.log(`[Masivo] Ajuste monto fijo linea ${lineaId}: $${monto}`);
     const productos = await this.productoRepository.findActivosByLineaId(lineaId);
-    return this.ejecutarAjuste(productos, 'monto', monto);
+    return this.ejecutarAjuste(productos, 'monto', monto, _usuarioId);
   }
 
   /**
@@ -131,7 +131,7 @@ export class ActualizadorMasivoPreciosService {
       `[Masivo] Ajuste porcentual super-linea ${superLineaId}: ${porcentaje}%`,
     );
     const productos = await this.productoRepository.findActivosBySuperLineaId(superLineaId);
-    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje);
+    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje, _usuarioId);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -145,23 +145,35 @@ export class ActualizadorMasivoPreciosService {
     productos: Producto[],
     modo: 'porcentaje' | 'monto',
     valor: number,
+    usuarioId?: number,
   ): Promise<ResultadoSimulacionDto[]> {
     const simulacion = this.calcularSimulacion(productos, modo, valor);
 
     // Validar invariante ANTES de abrir la transacción
     this.validarInvariante(simulacion);
 
-    const actualizaciones = simulacion.map((s) => ({
-      id: s.productoId,
-      precio: s.precioProyectado,
-    }));
+    // Aplicar los cambios a las entidades instanciadas para asegurar el recálculo de margen
+    // y para que el Subscriber reciba la entidad completa.
+    const productosAActualizar = simulacion.map((s) => {
+      const p = productos.find((prod) => prod.id === s.productoId)!;
+      p.actualizarPrecio(s.precioProyectado);
+      
+      // Asignar auditoría temporal para que el HistoricoPrecioSubscriber pueda leerlo
+      if (usuarioId) {
+        p.usuarioUpdated = { id: usuarioId } as any;
+      }
+      (p as any)._tipoOperacionTemporal = `Ajuste Masivo (${modo})`;
+      (p as any)._motivoTemporal = `Ajuste masivo de ${modo}: ${valor}`;
+      
+      return p;
+    });
 
     // Transacción atómica: si cualquier update falla → rollback automático
     await this.dataSource.transaction(async (manager) => {
-      await this.productoRepository.actualizarPrecioMasivo(actualizaciones, manager);
+      await this.productoRepository.actualizarPrecioMasivo(productosAActualizar, manager);
     });
 
-    this.logger.log(`[Masivo] ${actualizaciones.length} productos actualizados exitosamente.`);
+    this.logger.log(`[Masivo] ${productosAActualizar.length} productos actualizados exitosamente.`);
     return simulacion;
   }
 

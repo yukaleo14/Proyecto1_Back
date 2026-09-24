@@ -576,15 +576,12 @@ export class ProductoPersistenceAdapter implements IProductoRepository {
    * @param manager EntityManager transaccional del llamador.
    */
   async actualizarPrecioMasivo(
-    actualizaciones: { id: number; precio: number }[],
+    productos: Producto[],
     manager: import('typeorm').EntityManager,
   ): Promise<void> {
     try {
-      await Promise.all(
-        actualizaciones.map(({ id, precio }) =>
-          manager.update(Producto, id, { precio }),
-        ),
-      );
+      // Usar manager.save() dispara los hooks/subscribers (ej. HistoricoPrecioSubscriber)
+      await manager.save(Producto, productos, { chunk: 100 });
     } catch (error) {
       this.logger.error('Error al actualizar precios en lote:', error);
       throw new DatabaseConnectionException('Error al persistir los precios actualizados.');
