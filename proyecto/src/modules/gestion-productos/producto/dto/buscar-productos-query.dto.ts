@@ -1,6 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+
+enum OrdenDireccion {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
+enum OrdenCampo {
+  denominacion = 'denominacion',
+  precio = 'precio',
+  stock = 'stock',
+  costo = 'costo',
+}
 
 /**
  * DTO de Consulta para búsqueda dinámica y combinada de productos (CQRS Read Model).
@@ -49,6 +61,60 @@ export class BuscarProductosQueryDto {
   @IsInt()
   @Min(0)
   skip?: number = 0;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar por ID exacto de la Marca.',
+    example: 3,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  marcaId?: number;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar por ID exacto de la Línea.',
+    example: 5,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  lineaId?: number;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar por ID exacto de la SuperLínea.',
+    example: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  superLineaId?: number;
+
+  @ApiPropertyOptional({
+    description: 'Si es true, retorna solo los productos cuyo stock es menor o igual al stock mínimo configurado.',
+    example: true,
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  conAlertaStock?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Campo por el cual ordenar los resultados.',
+    enum: OrdenCampo,
+    default: 'denominacion',
+  })
+  @IsOptional()
+  @IsEnum(OrdenCampo)
+  orderBy?: OrdenCampo = OrdenCampo.denominacion;
+
+  @ApiPropertyOptional({
+    description: 'Dirección del ordenamiento.',
+    enum: OrdenDireccion,
+    default: 'ASC',
+  })
+  @IsOptional()
+  @IsEnum(OrdenDireccion)
+  order?: OrdenDireccion = OrdenDireccion.ASC;
 
   @ApiPropertyOptional({
     description: 'Cantidad de registros a obtener por página.',
