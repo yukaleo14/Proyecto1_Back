@@ -22,6 +22,7 @@ import { TipoMovimientoStock } from '../../domain/enums/tipo-movimiento-stock.en
 import { StockActualizadoEvent } from '../../domain/events/stock-actualizado.event';
 import { StockBajoEvent } from '../../domain/events/stock-bajo.event';
 import { AjusteStockDto } from '../../dto/ajuste-stock.dto';
+import { MovimientoStockResponseDto } from '../../dto/movimiento-stock-response.dto';
 import { IProductoRepository } from '../../domain/interfaces/producto.repository-interface';
 import { CreateProductoDto } from '../../dto/create-producto.dto';
 import { GetProductoDto } from '../../dto/get-producto.dto';
@@ -321,7 +322,7 @@ export class ProductoService {
   async ajustarStock(
     productoId: number,
     dto: AjusteStockDto,
-  ): Promise<{ nuevoStock: number; stockAnterior: number; alertaStockBajo: boolean; movimiento: MovimientoStock }> {
+  ): Promise<{ nuevoStock: number; stockAnterior: number; alertaStockBajo: boolean; movimiento: MovimientoStockResponseDto }> {
     const producto = await this.productoEntityRepository.findOne({
       where: { id: productoId, deletedAt: IsNull() },
     });
@@ -333,11 +334,27 @@ export class ProductoService {
     // Ejecuta regla de dominio 5.3 en la entidad Producto (valida motivo, delta, no negatividad)
     const movimiento = producto.ajustarStock(dto.cantidad, dto.motivo);
 
-    // Persiste producto y movimiento dentro de una transacción
+    // Persist the domain result without serializing its Producto relation.
+    let movimientoGuardado!: MovimientoStock;
     await this.dataSource.transaction(async (manager) => {
-      await manager.save(Producto, producto);
-      movimiento.productoId = producto.id;
-      await manager.save(MovimientoStock, movimiento);
+      // Producto.movimientosStock has cascade enabled for aggregate operations.
+      // Updating just the stock column avoids re-saving its whole movement array.
+      await manager.getRepository(Producto).update(producto.id, {
+        stock: producto.stock,
+      });
+
+      const movimientoParaPersistir = manager.create(MovimientoStock, {
+        // ManyToOne owns producto_id. A reference with only the id is enough;
+        // sending the whole Producto would recreate the circular object graph.
+        producto: { id: producto.id } as Producto,
+        productoId: producto.id,
+        tipoMovimiento: movimiento.tipoMovimiento,
+        cantidad: movimiento.cantidad,
+        motivo: movimiento.motivo,
+        fecha: movimiento.fecha,
+      });
+
+      movimientoGuardado = await manager.save(MovimientoStock, movimientoParaPersistir);
     });
 
     // Dispara evento de dominio: StockActualizado
@@ -378,14 +395,14 @@ export class ProductoService {
       nuevoStock: producto.stock,
       stockAnterior,
       alertaStockBajo,
-      movimiento,
+      movimiento: this.mapearMovimientoStock(movimientoGuardado),
     };
   }
 
   /**
    * 4.2 Movimientos de stock: Historial y trazabilidad del producto
    */
-  async obtenerMovimientosStock(productoId: number): Promise<MovimientoStock[]> {
+  async obtenerMovimientosStock(productoId: number): Promise<MovimientoStockResponseDto[]> {
     const producto = await this.productoEntityRepository.findOne({
       where: { id: productoId, deletedAt: IsNull() },
     });
@@ -393,10 +410,24 @@ export class ProductoService {
       throw new NotFoundException(`Producto con ID ${productoId} no encontrado`);
     }
 
-    return this.movimientoStockRepository.find({
+    const movimientos = await this.movimientoStockRepository.find({
       where: { productoId },
       order: { fecha: 'DESC' },
     });
+
+    return movimientos.map((movimiento) => this.mapearMovimientoStock(movimiento));
+  }
+
+  // Keep HTTP responses flat: Producto -> movimientosStock would otherwise be circular.
+  private mapearMovimientoStock(movimiento: MovimientoStock): MovimientoStockResponseDto {
+    return {
+      id: movimiento.id,
+      productoId: movimiento.productoId,
+      tipoMovimiento: movimiento.tipoMovimiento,
+      cantidad: Number(movimiento.cantidad),
+      motivo: movimiento.motivo ?? null,
+      fecha: movimiento.fecha,
+    };
   }
 
   async incrementarStock(
