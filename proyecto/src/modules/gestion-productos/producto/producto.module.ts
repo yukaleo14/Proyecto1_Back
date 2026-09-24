@@ -18,6 +18,10 @@ import { ProductoUniquenessValidator } from './infraestructure/validators/produc
 import { ProductoRelatedEntitiesValidator } from './infraestructure/validators/producto-related-entities.validator';
 import { ProductoValidationService } from './domain/services/producto-validation.service';
 import { ProductoIntrinsicValidationService } from './domain/services/producto-intrinsic-validation.service';
+import { HistoricoPrecio } from './domain/entities/historico-precio.entity';
+import { MovimientoStock } from './domain/entities/movimiento-stock.entity';
+import { HistoricoPrecioEventHandler } from './application/handlers/historico-precio.handler';
+import { StockEventsHandler } from './application/handlers/stock-events.handler';
 import { ProductoDeletePolicy } from './application/policies/producto-delete.policy';
 import { ActualizadorMasivoPreciosService } from './domain/services/actualizador-masivo-precios.service';
 import { ActualizadorMasivoPreciosController } from './application/controllers/actualizador-masivo-precios.controller';
@@ -28,7 +32,7 @@ import { ProductoQueryService } from './application/services/producto-query.serv
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Producto]),
+    TypeOrmModule.forFeature([Producto, HistoricoPrecio, MovimientoStock]),
     CommonModule,
     forwardRef(() => LineaModule),
     forwardRef(() => MarcaModule),
@@ -47,6 +51,8 @@ import { ProductoQueryService } from './application/services/producto-query.serv
     ProductoUniquenessValidator,
     ProductoDeletePolicy,
     ActualizadorMasivoPreciosService,
+    HistoricoPrecioEventHandler,
+    StockEventsHandler,
 
     {
       provide: 'IProductoRepository',

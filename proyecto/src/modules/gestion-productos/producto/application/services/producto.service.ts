@@ -6,6 +6,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IUnitOfWork } from 'src/modules/common/unit-of-work/iunit-of-work.';
 import { ProveedorService } from 'src/modules/organizacion/proveedor/application/services/proveedor.service';
 import { PaginacionUtils } from 'src/modules/common/utils/pagination/paginacion-utils';
@@ -14,6 +17,12 @@ import { ensureNotSistemaEntity } from 'src/modules/common/utils/atrituto-sistem
 import { AuditoriaMapper } from 'src/modules/gestion-sistema/auditoria/mappers/auditoria.mapper';
 import { MessageFrontUtils } from 'src/modules/common/utils/message/message-front.util';
 import { Producto } from '../../domain/entities/producto.entity';
+import { MovimientoStock } from '../../domain/entities/movimiento-stock.entity';
+import { TipoMovimientoStock } from '../../domain/enums/tipo-movimiento-stock.enum';
+import { StockActualizadoEvent } from '../../domain/events/stock-actualizado.event';
+import { StockBajoEvent } from '../../domain/events/stock-bajo.event';
+import { AjusteStockDto } from '../../dto/ajuste-stock.dto';
+import { MovimientoStockResponseDto } from '../../dto/movimiento-stock-response.dto';
 import { IProductoRepository } from '../../domain/interfaces/producto.repository-interface';
 import { CreateProductoDto } from '../../dto/create-producto.dto';
 import { GetProductoDto } from '../../dto/get-producto.dto';
@@ -27,6 +36,9 @@ import { ProductoRelatedEntitiesValidator } from '../../infraestructure/validato
 import { ProductoUniquenessValidator } from '../../infraestructure/validators/producto-uniqueness.validator';
 import { UsuarioValidator } from 'src/modules/common/utils/validation/usuario-validator';
 import { ProductoDeletePolicy } from '../policies/producto-delete.policy';
+import { BadRequestException } from '@nestjs/common';
+import { PrecioModificadoEvent } from '../../domain/events/precio-modificado.event';
+
 @Injectable()
 export class ProductoService {
   private readonly logger = new Logger(ProductoService.name);
@@ -48,9 +60,16 @@ export class ProductoService {
     private readonly relatedEntitiesValidator: ProductoRelatedEntitiesValidator,
     private readonly uniquenessValidator: ProductoUniquenessValidator,
     private readonly usuarioValidator: UsuarioValidator,
-
     private readonly productoDeletePolicy: ProductoDeletePolicy,
 
+    @InjectRepository(Producto)
+    private readonly productoEntityRepository: Repository<Producto>,
+
+    @InjectRepository(MovimientoStock)
+    private readonly movimientoStockRepository: Repository<MovimientoStock>,
+
+    private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) { }
 
   private readonly ENTITY_NAME = 'Producto';
@@ -84,6 +103,14 @@ export class ProductoService {
   async update(id: number, dto: UpdateProductoDto) {
     this.logger.log(`Actualizandox  ${this.ENTITY_NAME} con ID: ${id}`);
 
+    const productoAnterior = await this.repository.findOne(id);
+    if (!productoAnterior) {
+      throw new NotFoundException(
+        `${this.ENTITY_NAME} con ID ${id} no encontrado.`,
+      );
+    }
+    const precioAnterior = Number(productoAnterior.precio ?? 0);
+
     const { marca, linea, usuario } =
       await this.validarYPrepararActualizacion(id, dto);
 
@@ -95,6 +122,30 @@ export class ProductoService {
 
       usuario,
     );
+
+    const precioNuevo = Number(entity.precio ?? 0);
+    const huboCambioDePrecio = precioAnterior !== precioNuevo;
+
+    if (huboCambioDePrecio && !dto.motivoCambioPrecio?.trim()) {
+      throw new BadRequestException(
+        "Debe ingresar un motivo para el cambio de precio",
+      );
+    }
+    if (huboCambioDePrecio) {
+      await this.eventEmitter.emitAsync(
+        "producto.precio.modificado",
+        new PrecioModificadoEvent(
+          entity.id,
+          precioNuevo,
+          precioAnterior,
+          "Actualización individual",
+          dto.motivoCambioPrecio?.trim() ?? "",
+          //?.trim() ejecuta trim() solamente si hay un motivo.
+         //?? "" usa texto vacío si no hay motivo.
+          usuario.id,
+        ),
+      );
+    }
 
     return MessageFrontUtils.createSimple(
       `${this.ENTITY_NAME}`,
@@ -264,13 +315,128 @@ export class ProductoService {
     return this.repository.findByIds(ids);
   }
 
+  /**
+   * 5.3 Regla de Ajuste de stock (modificación manual con motivo obligatorio).
+   * Registra un MovimientoStock, actualiza stock y dispara eventos de dominio.
+   */
+  async ajustarStock(
+    productoId: number,
+    dto: AjusteStockDto,
+  ): Promise<{ nuevoStock: number; stockAnterior: number; alertaStockBajo: boolean; movimiento: MovimientoStockResponseDto }> {
+    const producto = await this.productoEntityRepository.findOne({
+      where: { id: productoId, deletedAt: IsNull() },
+    });
+    if (!producto) {
+      throw new NotFoundException(`Producto con ID ${productoId} no encontrado`);
+    }
+
+    const stockAnterior = Number(producto.stock ?? 0);
+    // Ejecuta regla de dominio 5.3 en la entidad Producto (valida motivo, delta, no negatividad)
+    const movimiento = producto.ajustarStock(dto.cantidad, dto.motivo);
+
+    // Persist the domain result without serializing its Producto relation.
+    let movimientoGuardado!: MovimientoStock;
+    await this.dataSource.transaction(async (manager) => {
+      // Producto.movimientosStock has cascade enabled for aggregate operations.
+      // Updating just the stock column avoids re-saving its whole movement array.
+      await manager.getRepository(Producto).update(producto.id, {
+        stock: producto.stock,
+      });
+
+      const movimientoParaPersistir = manager.create(MovimientoStock, {
+        // ManyToOne owns producto_id. A reference with only the id is enough;
+        // sending the whole Producto would recreate the circular object graph.
+        producto: { id: producto.id } as Producto,
+        productoId: producto.id,
+        tipoMovimiento: movimiento.tipoMovimiento,
+        cantidad: movimiento.cantidad,
+        motivo: movimiento.motivo,
+        fecha: movimiento.fecha,
+      });
+
+      movimientoGuardado = await manager.save(MovimientoStock, movimientoParaPersistir);
+    });
+
+    // Dispara evento de dominio: StockActualizado
+    this.eventEmitter.emit(
+      'producto.stock.actualizado',
+      new StockActualizadoEvent(
+        producto.id,
+        producto.denominacion,
+        stockAnterior,
+        producto.stock,
+        dto.cantidad,
+        TipoMovimientoStock.AJUSTE,
+        dto.motivo,
+      ),
+    );
+
+    // 5.2 Regla de stock bajo: Si stockActual <= stockMinimo -> el producto entra en estado de alerta
+    // Detectar stock bajo -> Producto (entidad) mediante estaBajoMinimo()
+    // Generar alerta / notificar -> Evento de dominio (StockBajo)
+    const alertaStockBajo = producto.estaBajoMinimo();
+    if (alertaStockBajo) {
+      this.eventEmitter.emit(
+        'producto.stock.bajo',
+        new StockBajoEvent(
+          producto.id,
+          producto.denominacion,
+          producto.stock,
+          producto.stockMinimo,
+        ),
+      );
+    }
+
+    this.logger.log(
+      `Ajuste de stock realizado para producto ${producto.id}: ${stockAnterior} -> ${producto.stock} (motivo: ${dto.motivo}, alertaStockBajo: ${alertaStockBajo})`,
+    );
+
+    return {
+      nuevoStock: producto.stock,
+      stockAnterior,
+      alertaStockBajo,
+      movimiento: this.mapearMovimientoStock(movimientoGuardado),
+    };
+  }
+
+  /**
+   * 4.2 Movimientos de stock: Historial y trazabilidad del producto
+   */
+  async obtenerMovimientosStock(productoId: number): Promise<MovimientoStockResponseDto[]> {
+    const producto = await this.productoEntityRepository.findOne({
+      where: { id: productoId, deletedAt: IsNull() },
+    });
+    if (!producto) {
+      throw new NotFoundException(`Producto con ID ${productoId} no encontrado`);
+    }
+
+    const movimientos = await this.movimientoStockRepository.find({
+      where: { productoId },
+      order: { fecha: 'DESC' },
+    });
+
+    return movimientos.map((movimiento) => this.mapearMovimientoStock(movimiento));
+  }
+
+  // Keep HTTP responses flat: Producto -> movimientosStock would otherwise be circular.
+  private mapearMovimientoStock(movimiento: MovimientoStock): MovimientoStockResponseDto {
+    return {
+      id: movimiento.id,
+      productoId: movimiento.productoId,
+      tipoMovimiento: movimiento.tipoMovimiento,
+      cantidad: Number(movimiento.cantidad),
+      motivo: movimiento.motivo ?? null,
+      fecha: movimiento.fecha,
+    };
+  }
+
   async incrementarStock(
     uow: IUnitOfWork,
     productoId: number,
     cantidad: number,
     origen?: string,
   ): Promise<number> {
-    return this.ajustarStockInterno(uow, productoId, cantidad, origen);
+    return this.ajustarStockInterno(uow, productoId, cantidad, origen, TipoMovimientoStock.COMPRA);
   }
 
   async decrementarStock(
@@ -279,7 +445,7 @@ export class ProductoService {
     cantidad: number,
     origen?: string,
   ): Promise<number> {
-    return this.ajustarStockInterno(uow, productoId, -cantidad, origen);
+    return this.ajustarStockInterno(uow, productoId, -cantidad, origen, TipoMovimientoStock.VENTA);
   }
 
   private async ajustarStockInterno(
@@ -287,24 +453,65 @@ export class ProductoService {
     productoId: number,
     delta: number,
     origen?: string,
+    tipo: TipoMovimientoStock = TipoMovimientoStock.AJUSTE,
   ): Promise<number> {
     const producto = await this.repository.findOne(productoId);
     if (!producto) {
       throw new Error(`Producto con ID ${productoId} no encontrado`);
     }
 
-    const stockActual = producto.stock ?? 0;
+    const stockActual = Number(producto.stock ?? 0);
     const nuevoStock = stockActual + delta;
 
-    // Política opcional
-    // if (nuevoStock < 0) throw ...
+    if (nuevoStock < 0) {
+      throw new Error(`El stock resultante (${nuevoStock}) no puede ser negativo.`);
+    }
 
     producto.stock = nuevoStock;
     await this.repository.updateEntity(uow, producto);
 
+    try {
+      const movimiento = new MovimientoStock({
+        productoId: producto.id,
+        producto,
+        tipoMovimiento: tipo,
+        cantidad: delta,
+        motivo: origen ?? null,
+      });
+      await this.movimientoStockRepository.save(movimiento);
+    } catch (e: any) {
+      this.logger.warn(`No se pudo persistir el movimiento de stock en ajustarStockInterno: ${e.message}`);
+    }
+
     this.logger.log(
       `[StockService] ${origen ?? 'Desconocido'} → ${stockActual} → ${nuevoStock}`,
     );
+
+    // Emitir eventos de dominio
+    this.eventEmitter.emit(
+      'producto.stock.actualizado',
+      new StockActualizadoEvent(
+        producto.id,
+        producto.denominacion,
+        stockActual,
+        nuevoStock,
+        delta,
+        tipo,
+        origen,
+      ),
+    );
+
+    if (producto.estaBajoMinimo()) {
+      this.eventEmitter.emit(
+        'producto.stock.bajo',
+        new StockBajoEvent(
+          producto.id,
+          producto.denominacion,
+          producto.stock,
+          producto.stockMinimo,
+        ),
+      );
+    }
 
     return nuevoStock;
   }

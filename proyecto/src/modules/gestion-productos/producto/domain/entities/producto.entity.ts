@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   Index,
   JoinColumn,
 } from 'typeorm';
@@ -21,6 +22,8 @@ import { Proveedor } from 'src/modules/organizacion/proveedor/domain/entities/pr
 import { Costo, StockMinimo, Margen, Presentacion } from '../value-objects';
 import { DatosProductoInvalidosException } from '../exceptions/datos-producto-invalidos.exception';
 import { UnidadPresentacion } from '../enums/unidad-presentacion.enum';
+import { MovimientoStock } from './movimiento-stock.entity';
+import { TipoMovimientoStock } from '../enums/tipo-movimiento-stock.enum';
 
 export interface ProductoProps {
   marca: Marca | number | string;
@@ -236,6 +239,10 @@ export class Producto {
   @Column('boolean', { default: false, name: 'es_denominacion_manual' })
   esDenominacionManual: boolean = false;
 
+  // ========== MOVIMIENTOS DE STOCK (4.2 Trazabilidad e Historial) ==========
+  @OneToMany(() => MovimientoStock, (mov) => mov.producto, { cascade: true })
+  movimientosStock: MovimientoStock[];
+
   // ========== CONSTRUCTORES & VALIDACIÓN DE INVARIANTES ==========
   constructor();
   constructor(props: ProductoProps);
@@ -422,6 +429,11 @@ export class Producto {
     if (denominacionRaw !== undefined) {
       this.denominacion = this.validarStringNoVacio(denominacionRaw, 'denominación');
     } else {
+      const tienePresentacion =
+        this.presentacionTexto !== undefined || this.presentacionValor !== undefined;
+      if (!tienePresentacion) {
+        throw new DatosProductoInvalidosException('El campo denominacion es obligatorio.');
+      }
       this.denominacion = this.generarDenominacionAutomatica();
       if (!this.denominacion) {
         throw new DatosProductoInvalidosException('El campo denominacion es obligatorio.');
@@ -508,6 +520,21 @@ export class Producto {
         : new Margen(Number(nuevoMargen));
     this.porcentaje = vo.getValue();
     this.calcularPrecio();
+  }
+
+  /**
+   * Actualiza el precio directamente y recalibra el margen para mantener la invariante
+   * Precio = Costo * (1 + Margen / 100).
+   */
+  actualizarPrecio(nuevoPrecio: number): void {
+    if (nuevoPrecio <= 0) {
+      throw new DatosProductoInvalidosException('El precio resultante debe ser mayor a 0.');
+    }
+    this.precio = +nuevoPrecio.toFixed(2);
+    
+    if (this.costo && this.costo > 0) {
+      this.porcentaje = +(((this.precio / this.costo) - 1) * 100).toFixed(2);
+    }
   }
 
   /**
@@ -630,22 +657,107 @@ export class Producto {
   }
 
   /**
-   * Ajusta el stock asegurando motivo obligatorio y stock final no negativo
+   * 5.3 Regla de Ajuste de stock:
+   * Permite modificar manualmente el stock de un producto, siempre indicando un motivo.
+   * Motivos típicos: error de carga, rotura, pérdida, inventario físico.
+   * Puede resultar en un aumento o una disminución de stock, y queda registrado como un MovimientoStock para mantener trazabilidad.
+   * Ejemplo: stock actual = 10 -> ajuste = -2 (motivo: rotura) -> nuevo stock = 8.
    */
-  ajustarStock(cantidad: number, motivo: string): void {
+  ajustarStock(cantidad: number, motivo: string): MovimientoStock {
     this.validarStringNoVacio(motivo, 'motivo de ajuste');
     if (typeof cantidad !== 'number' || isNaN(cantidad)) {
       throw new DatosProductoInvalidosException(
         'La cantidad de ajuste debe ser un número válido.',
       );
     }
-    const nuevoStock = (this.stock ?? 0) + cantidad;
+    const cantNum = Number(cantidad);
+    if (cantNum === 0) {
+      throw new DatosProductoInvalidosException('La cantidad de ajuste no puede ser cero.');
+    }
+    const nuevoStock = +(Number(this.stock ?? 0) + cantNum).toFixed(3);
     if (nuevoStock < 0) {
       throw new DatosProductoInvalidosException(
         `El stock resultante (${nuevoStock}) no puede ser negativo.`,
       );
     }
     this.stock = nuevoStock;
+
+    const movimiento = new MovimientoStock({
+      productoId: this.id,
+      producto: this,
+      tipoMovimiento: TipoMovimientoStock.AJUSTE,
+      cantidad: cantNum,
+      motivo: motivo.trim(),
+      fecha: new Date(),
+    });
+
+    if (!this.movimientosStock) {
+      this.movimientosStock = [];
+    }
+    this.movimientosStock.push(movimiento);
+
+    return movimiento;
+  }
+
+  /**
+   * Registra un movimiento de stock tipificado (Compra, Venta, Devoluciones, Ajuste)
+   * garantizando la invariante de no negatividad del stock y la trazabilidad.
+   */
+  registrarMovimiento(
+    tipoMovimiento: TipoMovimientoStock,
+    cantidad: number,
+    motivo?: string,
+  ): MovimientoStock {
+    if (!tipoMovimiento) {
+      throw new DatosProductoInvalidosException('El tipo de movimiento es obligatorio.');
+    }
+    if (typeof cantidad !== 'number' || isNaN(cantidad) || cantidad === 0) {
+      throw new DatosProductoInvalidosException(
+        'La cantidad debe ser un número válido distinto de cero.',
+      );
+    }
+
+    if (tipoMovimiento === TipoMovimientoStock.AJUSTE) {
+      return this.ajustarStock(cantidad, motivo ?? '');
+    }
+
+    const cantAbs = Math.abs(cantidad);
+    let delta = 0;
+
+    switch (tipoMovimiento) {
+      case TipoMovimientoStock.COMPRA:
+      case TipoMovimientoStock.DEVOLUCION_CLIENTE:
+        delta = cantAbs; // Aumenta stock
+        break;
+      case TipoMovimientoStock.VENTA:
+      case TipoMovimientoStock.DEVOLUCION_PROVEEDOR:
+        delta = -cantAbs; // Disminuye stock
+        break;
+    }
+
+    const nuevoStock = +(Number(this.stock ?? 0) + delta).toFixed(3);
+    if (nuevoStock < 0) {
+      throw new DatosProductoInvalidosException(
+        `El stock resultante (${nuevoStock}) no puede ser negativo tras el movimiento de ${tipoMovimiento}.`,
+      );
+    }
+    this.stock = nuevoStock;
+
+    const movimiento = new MovimientoStock({
+      productoId: this.id,
+      producto: this,
+      tipoMovimiento,
+      cantidad: delta,
+      motivo: motivo?.trim() ?? null,
+      fecha: new Date(),
+    });
+
+    if (!this.movimientosStock) {
+      this.movimientosStock = [];
+    }
+    this.movimientosStock.push(movimiento);
+
+    return movimiento;
   }
 
   /**

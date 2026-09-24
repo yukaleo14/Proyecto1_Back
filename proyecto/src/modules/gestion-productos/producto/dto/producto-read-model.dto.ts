@@ -55,6 +55,18 @@ export class ProductoReadModelDto {
 
   @ApiPropertyOptional({ example: '2 L', description: 'Formato legible de la presentación' })
   presentacionDescripcion?: string | null;
+
+  @ApiPropertyOptional({ example: 50.25, description: 'Margen de ganancia calculado: ((precio/costo)-1)*100. Null si costo = 0.' })
+  margenCalculado?: number | null;
+
+  @ApiPropertyOptional({ example: true, description: 'Indica si el stock actual está por debajo del stock mínimo configurado' })
+  alertaStockBajo?: boolean;
+
+  @ApiPropertyOptional({ example: 1200.00, description: 'Precio anterior (del último movimiento en historico_precios). Null si no hay historial.' })
+  precioAnterior?: number | null;
+
+  @ApiPropertyOptional({ example: '2026-09-23T22:00:00Z', description: 'Fecha del último cambio de precio registrado en el historial' })
+  fechaUltimoCambioPrecio?: Date | null;
 }
 
 export class BuscarProductosResponseDto {

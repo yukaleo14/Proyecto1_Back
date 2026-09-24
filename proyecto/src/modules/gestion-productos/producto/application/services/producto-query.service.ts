@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { Producto } from '../../domain/entities/producto.entity';
+import { HistoricoPrecio } from '../../domain/entities/historico-precio.entity';
 import { BuscarProductosQueryDto } from '../../dto/buscar-productos-query.dto';
 import {
   BuscarProductosResponseDto,
@@ -13,7 +14,16 @@ import {
  *
  * Desacoplado del agregado de escritura Producto: no valida invariantes ni hidrata
  * el Aggregate Root completo, sino que realiza proyecciones directas de lectura
- * optimizadas con filtros dinámicos combinados bajo lógica AND.
+ * optimizadas con filtros dinámicos combinados bajo lógica AND y búsqueda global OR.
+ *
+ * Capacidades de Grilla:
+ *  - Búsqueda global por término (OR entre denominación, línea y superlínea)
+ *  - Filtros por denominación, línea, superlínea (texto parcial, insensible a mayúsculas)
+ *  - Filtros por ID exacto de marca, línea, superLínea
+ *  - Filtro de alerta de stock bajo
+ *  - Ordenamiento configurable por campo y dirección
+ *  - Enriquecimiento con datos del historial de precios (precio anterior y fecha último cambio)
+ *  - Margen calculado en el read model
  */
 @Injectable()
 export class ProductoQueryService {
@@ -22,33 +32,38 @@ export class ProductoQueryService {
   constructor(
     @InjectRepository(Producto)
     private readonly repository: Repository<Producto>,
+    @InjectRepository(HistoricoPrecio)
+    private readonly historicoRepository: Repository<HistoricoPrecio>,
   ) {}
 
   /**
    * Ejecuta búsqueda dinámica de productos combinando filtros con lógica AND
-   * y búsqueda parcial insensible a mayúsculas/minúsculas (ILIKE / LOWER contains).
+   * y búsqueda parcial insensible a mayúsculas/minúsculas (LOWER contains).
+   * Si se especifica 'termino', busca con OR entre producto, línea y superlínea.
    *
-   * Criterios de Aceptación:
-   * 1. Búsqueda por denominación="coca" devuelve todas las coincidencias parciales sin importar mayúsculas.
-   * 2. Filtro combinado denominación="cola" + superlinea="beb" devuelve solo los registros que cumplen ambas condiciones.
-   *
-   * @param query DTO con los filtros opcionales de búsqueda y paginación.
+   * @param query DTO con los filtros opcionales de búsqueda, ordenamiento y paginación.
    */
   async buscar(query: BuscarProductosQueryDto): Promise<BuscarProductosResponseDto> {
     const {
+      termino,
       denominacion,
       lineaNombre,
       superLineaNombre,
       superlinea,
+      marcaId,
+      lineaId,
+      superLineaId,
+      conAlertaStock,
+      orderBy = 'denominacion',
+      order = 'ASC',
       skip = 0,
       take = 50,
     } = query;
 
     this.logger.log(
       `[CQRS Query] Buscando productos - filtros: ${JSON.stringify({
-        denominacion,
-        lineaNombre,
-        superLineaNombre: superLineaNombre || superlinea,
+        termino, denominacion, lineaNombre, superLineaNombre: superLineaNombre || superlinea,
+        marcaId, lineaId, superLineaId, conAlertaStock, orderBy, order,
       })}`,
     );
 
@@ -59,6 +74,19 @@ export class ProductoQueryService {
       .leftJoinAndSelect('producto.marca', 'marca', 'marca.deletedAt IS NULL')
       .where('producto.deletedAt IS NULL');
 
+    // Filtro Global Único (para barra de búsqueda única): OR entre producto, línea y superlínea
+    if (termino && termino.trim().length > 0) {
+      const terminoVal = `%${termino.trim().toLowerCase()}%`;
+      qb.andWhere(
+        new Brackets((subQb) => {
+          subQb
+            .where('LOWER(producto.denominacion) LIKE :termino', { termino: terminoVal })
+            .orWhere('LOWER(linea.denominacion) LIKE :termino', { termino: terminoVal })
+            .orWhere('LOWER(superLinea.nombre) LIKE :termino', { termino: terminoVal });
+        }),
+      );
+    }
+
     // Filtro 1: Denominación (insensible a mayúsculas/minúsculas)
     if (denominacion && denominacion.trim().length > 0) {
       qb.andWhere('LOWER(producto.denominacion) LIKE :denominacion', {
@@ -66,14 +94,14 @@ export class ProductoQueryService {
       });
     }
 
-    // Filtro 2: Línea (insensible a mayúsculas/minúsculas)
+    // Filtro 2: Línea por nombre (insensible a mayúsculas/minúsculas)
     if (lineaNombre && lineaNombre.trim().length > 0) {
       qb.andWhere('LOWER(linea.denominacion) LIKE :lineaNombre', {
         lineaNombre: `%${lineaNombre.trim().toLowerCase()}%`,
       });
     }
 
-    // Filtro 3: SuperLínea (insensible a mayúsculas/minúsculas, soporta superLineaNombre y alias superlinea)
+    // Filtro 3: SuperLínea por nombre (soporta superLineaNombre y alias superlinea)
     const superLineaFiltro = superLineaNombre || superlinea;
     if (superLineaFiltro && superLineaFiltro.trim().length > 0) {
       qb.andWhere('LOWER(superLinea.nombre) LIKE :superLineaNombre', {
@@ -81,33 +109,105 @@ export class ProductoQueryService {
       });
     }
 
-    qb.orderBy('producto.denominacion', 'ASC');
+    // Filtro 4: Marca por ID exacto
+    if (marcaId) {
+      qb.andWhere('marca.id = :marcaId', { marcaId });
+    }
+
+    // Filtro 5: Línea por ID exacto
+    if (lineaId) {
+      qb.andWhere('linea.id = :lineaId', { lineaId });
+    }
+
+    // Filtro 6: SuperLínea por ID exacto
+    if (superLineaId) {
+      qb.andWhere('superLinea.id = :superLineaId', { superLineaId });
+    }
+
+    // Filtro 7: Alerta de stock bajo (stock <= stockMinimo)
+    if (conAlertaStock === true) {
+      qb.andWhere('producto.stock <= producto.stockMinimo');
+    }
+
+    // Ordenamiento configurable
+    const camposOrdenables: Record<string, string> = {
+      denominacion: 'producto.denominacion',
+      precio: 'producto.precio',
+      stock: 'producto.stock',
+      costo: 'producto.costo',
+    };
+    const campoOrden = camposOrdenables[orderBy] ?? 'producto.denominacion';
+    qb.orderBy(campoOrden, order as 'ASC' | 'DESC');
+
     qb.skip(skip).take(take);
 
     const [productos, total] = await qb.getManyAndCount();
 
-    // Mapeo directo y plano al Read Model
-    const data: ProductoReadModelDto[] = productos.map((p) => this.mapToReadModel(p));
+    // Obtener historial de último precio para todos los productos retornados
+    const productosIds = productos.map((p) => p.id);
+    const ultimosPreciosMap = await this.obtenerUltimosPrecios(productosIds);
 
-    return {
-      data,
-      total,
-    };
+    // Mapeo al Read Model
+    const data: ProductoReadModelDto[] = productos.map((p) =>
+      this.mapToReadModel(p, ultimosPreciosMap.get(p.id)),
+    );
+
+    return { data, total };
   }
 
   /**
-   * Mapea la entidad proyectada a la estructura plana de lectura (Read Model).
+   * Retorna el historial completo de precios de un producto ordenado por fecha descendente.
    */
-  private mapToReadModel(p: Producto): ProductoReadModelDto {
+  async obtenerHistorialPrecios(productoId: number): Promise<HistoricoPrecio[]> {
+    return this.historicoRepository.find({
+      where: { productoId },
+      order: { fechaHora: 'DESC' },
+      relations: ['usuario'],
+    });
+  }
+
+  // ─── PRIVADOS ───────────────────────────────────────────────────────────────
+
+  /**
+   * Consulta el último registro de historico_precios para cada producto en el listado.
+   * Retorna un Map de productoId → HistoricoPrecio.
+   */
+  private async obtenerUltimosPrecios(productoIds: number[]): Promise<Map<number, HistoricoPrecio>> {
+    if (productoIds.length === 0) return new Map();
+
+    // Subconsulta: para cada producto, obtenemos el registro con la fecha más reciente
+    const ultimosHistoricos = await this.historicoRepository
+      .createQueryBuilder('hp')
+      .where('hp.producto_id IN (:...ids)', { ids: productoIds })
+      .andWhere(
+        'hp.fecha_hora = (SELECT MAX(hp2.fecha_hora) FROM historico_precios hp2 WHERE hp2.producto_id = hp.producto_id)',
+      )
+      .getMany();
+
+    const map = new Map<number, HistoricoPrecio>();
+    ultimosHistoricos.forEach((h) => map.set(h.productoId, h));
+    return map;
+  }
+
+  /**
+   * Mapea la entidad proyectada + historial al Read Model plano enriquecido.
+   */
+  private mapToReadModel(p: Producto, ultimoHistorico?: HistoricoPrecio): ProductoReadModelDto {
+    const costo = Number(p.costo ?? 0);
+    const precio = Number(p.precio ?? 0);
+    const margenCalculado = costo > 0 ? +((precio / costo - 1) * 100).toFixed(2) : null;
+    const stock = Number(p.stock ?? 0);
+    const stockMinimo = Number(p.stockMinimo ?? 0);
+
     return {
       id: p.id,
       denominacion: p.denominacion,
       codigoProveedor: p.codigoProveedor ?? null,
       codigoBarra: p.codigoBarra ?? null,
-      costo: Number(p.costo ?? 0),
-      precio: Number(p.precio ?? 0),
-      stock: Number(p.stock ?? 0),
-      stockMinimo: Number(p.stockMinimo ?? 0),
+      costo,
+      precio,
+      stock,
+      stockMinimo,
       lineaId: p.linea?.id ?? p.lineaId ?? 0,
       lineaNombre: p.linea?.denominacion ?? '',
       superLineaId: p.linea?.superLinea?.id ?? p.linea?.superLineaId ?? 0,
@@ -120,6 +220,11 @@ export class ProductoQueryService {
         p.presentacionValor != null && p.presentacionUnidad != null
           ? `${p.presentacionValor} ${p.presentacionUnidad}`
           : null,
+      // Campos enriquecidos
+      margenCalculado,
+      alertaStockBajo: stock <= stockMinimo,
+      precioAnterior: ultimoHistorico?.precioAnterior ?? null,
+      fechaUltimoCambioPrecio: ultimoHistorico?.fechaHora ?? null,
     };
   }
 }

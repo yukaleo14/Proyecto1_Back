@@ -4,6 +4,8 @@ import { IProductoRepository } from '../interfaces/producto.repository-interface
 import { Producto } from '../entities/producto.entity';
 import { ResultadoSimulacionDto } from '../../dto/resultado-simulacion.dto';
 import { OperacionInvalidaException } from '../exceptions/operacion-invalida.exception';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PrecioModificadoEvent } from '../events/precio-modificado.event';
 
 /**
  * Servicio de dominio que orquesta la actualización en lote de precios.
@@ -25,6 +27,7 @@ export class ActualizadorMasivoPreciosService {
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -95,7 +98,7 @@ export class ActualizadorMasivoPreciosService {
   ): Promise<ResultadoSimulacionDto[]> {
     this.logger.log(`[Masivo] Ajuste porcentual global: ${porcentaje}%`);
     const productos = await this.productoRepository.findTodosActivos();
-    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje);
+    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje, _usuarioId);
   }
 
   /**
@@ -112,7 +115,7 @@ export class ActualizadorMasivoPreciosService {
   ): Promise<ResultadoSimulacionDto[]> {
     this.logger.log(`[Masivo] Ajuste monto fijo linea ${lineaId}: $${monto}`);
     const productos = await this.productoRepository.findActivosByLineaId(lineaId);
-    return this.ejecutarAjuste(productos, 'monto', monto);
+    return this.ejecutarAjuste(productos, 'monto', monto, _usuarioId);
   }
 
   /**
@@ -131,7 +134,7 @@ export class ActualizadorMasivoPreciosService {
       `[Masivo] Ajuste porcentual super-linea ${superLineaId}: ${porcentaje}%`,
     );
     const productos = await this.productoRepository.findActivosBySuperLineaId(superLineaId);
-    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje);
+    return this.ejecutarAjuste(productos, 'porcentaje', porcentaje, _usuarioId);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -145,23 +148,49 @@ export class ActualizadorMasivoPreciosService {
     productos: Producto[],
     modo: 'porcentaje' | 'monto',
     valor: number,
+    usuarioId?: number,
   ): Promise<ResultadoSimulacionDto[]> {
     const simulacion = this.calcularSimulacion(productos, modo, valor);
 
     // Validar invariante ANTES de abrir la transacción
     this.validarInvariante(simulacion);
 
-    const actualizaciones = simulacion.map((s) => ({
-      id: s.productoId,
-      precio: s.precioProyectado,
-    }));
+    const eventosAEmitir: PrecioModificadoEvent[] = [];
+
+    // Aplicar los cambios a las entidades instanciadas para asegurar el recálculo de margen
+    const productosAActualizar = simulacion.map((s) => {
+      const p = productos.find((prod) => prod.id === s.productoId)!;
+      const precioAnterior = p.precio ?? 0;
+      p.actualizarPrecio(s.precioProyectado);
+      
+      const tipoOperacion = `Ajuste Masivo (${modo})`;
+      const motivo = `Ajuste masivo de ${modo}: ${valor}`;
+
+      eventosAEmitir.push(
+        new PrecioModificadoEvent(
+          p.id,
+          s.precioProyectado,
+          precioAnterior,
+          tipoOperacion,
+          motivo,
+          usuarioId,
+        ),
+      );
+      
+      return p;
+    });
 
     // Transacción atómica: si cualquier update falla → rollback automático
     await this.dataSource.transaction(async (manager) => {
-      await this.productoRepository.actualizarPrecioMasivo(actualizaciones, manager);
+      await this.productoRepository.actualizarPrecioMasivo(productosAActualizar, manager);
     });
 
-    this.logger.log(`[Masivo] ${actualizaciones.length} productos actualizados exitosamente.`);
+    // Emitir eventos asíncronamente después del commit exitoso
+    eventosAEmitir.forEach((evento) => {
+      this.eventEmitter.emit('producto.precio.modificado', evento);
+    });
+
+    this.logger.log(`[Masivo] ${productosAActualizar.length} productos actualizados exitosamente.`);
     return simulacion;
   }
 

@@ -100,7 +100,7 @@ export interface IProductoRepository {
    * @param manager EntityManager transaccional proporcionado por el llamador.
    */
   actualizarPrecioMasivo(
-    actualizaciones: { id: number; precio: number }[],
+    productos: Producto[],
     manager: import('typeorm').EntityManager,
   ): Promise<void>;
 }

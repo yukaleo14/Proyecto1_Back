@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MarcaModule } from './modules/gestion-productos/marca/marca.module';
@@ -58,6 +59,7 @@ import { BusquedasModule } from './modules/gestion-documentos/busquedas/busqueda
             }
           : undefined,
     }),
+    EventEmitterModule.forRoot(),
 
     MarcaModule,
     SuperLineaModule,

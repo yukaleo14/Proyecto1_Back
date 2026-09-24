@@ -37,10 +37,10 @@ export class ProductoRepository implements IProductoRepository {
   }
 
   async actualizarPrecioMasivo(
-    actualizaciones: { id: number; precio: number }[],
+    productos: Producto[],
     manager: import('typeorm').EntityManager,
   ): Promise<void> {
-    return this.persistenceService.actualizarPrecioMasivo(actualizaciones, manager);
+    return this.persistenceService.actualizarPrecioMasivo(productos, manager);
   }
   
 
