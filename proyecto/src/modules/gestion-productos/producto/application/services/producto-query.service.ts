@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { Producto } from '../../domain/entities/producto.entity';
 import { HistoricoPrecio } from '../../domain/entities/historico-precio.entity';
 import { BuscarProductosQueryDto } from '../../dto/buscar-productos-query.dto';
@@ -14,9 +14,10 @@ import {
  *
  * Desacoplado del agregado de escritura Producto: no valida invariantes ni hidrata
  * el Aggregate Root completo, sino que realiza proyecciones directas de lectura
- * optimizadas con filtros dinámicos combinados bajo lógica AND.
+ * optimizadas con filtros dinámicos combinados bajo lógica AND y búsqueda global OR.
  *
  * Capacidades de Grilla:
+ *  - Búsqueda global por término (OR entre denominación, línea y superlínea)
  *  - Filtros por denominación, línea, superlínea (texto parcial, insensible a mayúsculas)
  *  - Filtros por ID exacto de marca, línea, superLínea
  *  - Filtro de alerta de stock bajo
@@ -38,11 +39,13 @@ export class ProductoQueryService {
   /**
    * Ejecuta búsqueda dinámica de productos combinando filtros con lógica AND
    * y búsqueda parcial insensible a mayúsculas/minúsculas (LOWER contains).
+   * Si se especifica 'termino', busca con OR entre producto, línea y superlínea.
    *
    * @param query DTO con los filtros opcionales de búsqueda, ordenamiento y paginación.
    */
   async buscar(query: BuscarProductosQueryDto): Promise<BuscarProductosResponseDto> {
     const {
+      termino,
       denominacion,
       lineaNombre,
       superLineaNombre,
@@ -59,7 +62,7 @@ export class ProductoQueryService {
 
     this.logger.log(
       `[CQRS Query] Buscando productos - filtros: ${JSON.stringify({
-        denominacion, lineaNombre, superLineaNombre: superLineaNombre || superlinea,
+        termino, denominacion, lineaNombre, superLineaNombre: superLineaNombre || superlinea,
         marcaId, lineaId, superLineaId, conAlertaStock, orderBy, order,
       })}`,
     );
@@ -70,6 +73,19 @@ export class ProductoQueryService {
       .leftJoinAndSelect('linea.superLinea', 'superLinea', 'superLinea.deletedAt IS NULL')
       .leftJoinAndSelect('producto.marca', 'marca', 'marca.deletedAt IS NULL')
       .where('producto.deletedAt IS NULL');
+
+    // Filtro Global Único (para barra de búsqueda única): OR entre producto, línea y superlínea
+    if (termino && termino.trim().length > 0) {
+      const terminoVal = `%${termino.trim().toLowerCase()}%`;
+      qb.andWhere(
+        new Brackets((subQb) => {
+          subQb
+            .where('LOWER(producto.denominacion) LIKE :termino', { termino: terminoVal })
+            .orWhere('LOWER(linea.denominacion) LIKE :termino', { termino: terminoVal })
+            .orWhere('LOWER(superLinea.nombre) LIKE :termino', { termino: terminoVal });
+        }),
+      );
+    }
 
     // Filtro 1: Denominación (insensible a mayúsculas/minúsculas)
     if (denominacion && denominacion.trim().length > 0) {

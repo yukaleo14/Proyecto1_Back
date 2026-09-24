@@ -20,6 +20,15 @@ enum OrdenCampo {
  */
 export class BuscarProductosQueryDto {
   @ApiPropertyOptional({
+    description:
+      'Término de búsqueda unificado para barra única. Busca con lógica OR si el texto está contenido en producto.denominacion, linea.denominacion o superLinea.nombre.',
+    example: 'coca',
+  })
+  @IsOptional()
+  @IsString()
+  termino?: string;
+
+  @ApiPropertyOptional({
     description: 'Filtro parcial por denominación de producto (búsqueda insensible a mayúsculas).',
     example: 'coca',
   })

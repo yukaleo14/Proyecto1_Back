@@ -22,6 +22,7 @@ import { AuthGuard } from 'src/modules/gestion-usuario/auth/auth.guard';
 import { Roles } from 'src/modules/gestion-usuario/auth/roles.decorator';
 import {
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { NormalizeCodigoProveedorPipe } from 'src/modules/common/pipes/normalize-codigo-proveedor.pipe';
@@ -32,6 +33,11 @@ import { AuditoriaDto } from 'src/modules/gestion-sistema/auditoria/dto/auditori
 import { NormalizeDenominacionSearchPipe } from 'src/modules/common/pipes/normalize-denominations-search.pipe';
 import { DenominacionBusquedaDto } from 'src/modules/common/dto/denominacion-busqueda.dto';
 import { SearchProductoRapidoDto } from '../../dto/search-producto-rapido.dto';
+import { AjusteStockDto } from '../../dto/ajuste-stock.dto';
+import {
+  AjusteStockResponseDto,
+  MovimientoStockResponseDto,
+} from '../../dto/movimiento-stock-response.dto';
 import { ProductoService } from '../services/producto.service';
 
 
@@ -194,5 +200,35 @@ export class ProductoController {
   ): Promise<AuditoriaDto> {
     const data = await this.service.findByIdConAuditoria(id);
     return data;
+  }
+
+  @Post(':id/ajuste-stock')
+  @Roles('Root', 'Administrador', 'Empleado', 'Repositor')
+  @ApiOperation({
+    summary: 'Ajuste manual de stock de un producto (5.3)',
+    description:
+      'Modifica manualmente el stock indicando cantidad (+ o -) y motivo obligatorio (rotura, pérdida, etc.). ' +
+      'Registra un MovimientoStock, actualiza el stock actual y emite eventos de dominio StockActualizado y StockBajo si aplica.',
+  })
+  @ApiOkResponse({ type: AjusteStockResponseDto })
+  async ajustarStock(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AjusteStockDto,
+  ) {
+    this.logger.log(`Ajuste de stock para Producto ID: ${id}`);
+    return this.service.ajustarStock(id, dto);
+  }
+
+  @Get(':id/movimientos-stock')
+  @Roles('Root', 'Administrador', 'Empleado', 'Repositor', 'Vendedor')
+  @ApiOperation({
+    summary: 'Historial de movimientos de stock del producto (4.2)',
+    description:
+      'Retorna el historial completo de movimientos (compras, ventas, ajustes, etc.) ordenados por fecha descendente.',
+  })
+  @ApiOkResponse({ type: [MovimientoStockResponseDto] })
+  async obtenerMovimientosStock(@Param('id', ParseIntPipe) id: number) {
+    this.logger.log(`Consultando movimientos de stock para Producto ID: ${id}`);
+    return this.service.obtenerMovimientosStock(id);
   }
 }

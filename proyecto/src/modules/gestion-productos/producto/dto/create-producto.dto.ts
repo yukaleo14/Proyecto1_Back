@@ -145,4 +145,15 @@ export class CreateProductoDto {
   @IsNotEmpty({ message: 'La unidad de la presentación no puede estar vacía.' })
   presentacionUnidad?: string;
 
+  // ========== DENOMINACIÓN MANUAL ==========
+  /**
+   * Indica si la denominación fue ingresada manualmente por el usuario,
+   * en lugar de generarse automáticamente a partir de la presentación.
+   * Se persiste para que el formulario de edición restaure el modo correcto.
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === true || value === 'true')
+  esDenominacionManual?: boolean;
+
 }
