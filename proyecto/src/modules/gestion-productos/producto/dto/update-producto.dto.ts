@@ -6,6 +6,7 @@ import {
   IsString,
   MaxLength,
   Matches,
+  IsOptional,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -23,6 +24,12 @@ export class UpdateProductoDto extends PartialType(CreateProductoDto) {
   @IsNotEmpty({ message: 'El usuarioUpdatedId es obligatorio.' })
   @IsInt({ message: 'El usuarioUpdatedId debe ser un número entero.' })
   usuarioUpdatedId: number;
+
+  //no es un dato del producto: explica por qué cambió el precio y se usa solo para crear el historial.
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  motivoCambioPrecio?: string;
 
   updatedAt: Date;
 }

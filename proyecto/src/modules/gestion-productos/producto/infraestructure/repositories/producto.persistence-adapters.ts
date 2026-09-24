@@ -48,12 +48,25 @@ export class ProductoPersistenceAdapter implements IProductoRepository {
       this.logger.debug('Marca:', marca);
       this.logger.debug('Usuario:', usuario);
 
+      const {
+        precio: _precioManual,
+        ...datosSinPrecio
+      } = data;
+
       const nuevaEntity = repo.create({
-        ...data,
+        ...datosSinPrecio,
         linea,
         marca,
         usuarioCreated: usuario,
       });
+
+      if (nuevaEntity.costo !== undefined) {
+        nuevaEntity.actualizarCosto(Number(nuevaEntity.costo));
+      }
+
+      if (nuevaEntity.porcentaje !== undefined) {
+        nuevaEntity.actualizarMargen(Number(nuevaEntity.porcentaje));
+      }
 
       this.logger.debug('Entity creada:', nuevaEntity);
 
@@ -170,16 +183,30 @@ export class ProductoPersistenceAdapter implements IProductoRepository {
       if (!entity) {
         throw new NotFoundException(`EL prodcuto con ID ${id} no encontrada`);
       }
-      const {
 
-        ...dataSinItems
+    //Si cambia costo, la entidad recalcula precio.
+    //Si cambia margen, la entidad recalcula precio.
+    //El precio queda protegido aunque alguien manipule el reques
+     const {
+        costo,
+        porcentaje,
+        precio: _precioManual,
+        motivoCambioPrecio: _motivoCambioPrecio,
+        ...datosSinPrecio
       } = data;
 
-      Object.assign(entity, dataSinItems, {
+      Object.assign(entity, datosSinPrecio, {
         linea,
         marca,
       });
 
+      if (costo !== undefined) {
+        entity.actualizarCosto(Number(costo));
+      }
+
+      if (porcentaje !== undefined) {
+        entity.actualizarMargen(Number(porcentaje));
+      }
       entity.usuarioUpdated = usuario; 
       const entityActualizada = await repo.save(entity);
 

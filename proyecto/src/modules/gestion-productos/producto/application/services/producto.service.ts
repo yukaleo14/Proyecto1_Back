@@ -35,6 +35,9 @@ import { ProductoRelatedEntitiesValidator } from '../../infraestructure/validato
 import { ProductoUniquenessValidator } from '../../infraestructure/validators/producto-uniqueness.validator';
 import { UsuarioValidator } from 'src/modules/common/utils/validation/usuario-validator';
 import { ProductoDeletePolicy } from '../policies/producto-delete.policy';
+import { BadRequestException } from '@nestjs/common';
+import { PrecioModificadoEvent } from '../../domain/events/precio-modificado.event';
+
 @Injectable()
 export class ProductoService {
   private readonly logger = new Logger(ProductoService.name);
@@ -99,6 +102,14 @@ export class ProductoService {
   async update(id: number, dto: UpdateProductoDto) {
     this.logger.log(`Actualizandox  ${this.ENTITY_NAME} con ID: ${id}`);
 
+    const productoAnterior = await this.repository.findOne(id);
+    if (!productoAnterior) {
+      throw new NotFoundException(
+        `${this.ENTITY_NAME} con ID ${id} no encontrado.`,
+      );
+    }
+    const precioAnterior = Number(productoAnterior.precio ?? 0);
+
     const { marca, linea, usuario } =
       await this.validarYPrepararActualizacion(id, dto);
 
@@ -110,6 +121,30 @@ export class ProductoService {
 
       usuario,
     );
+
+    const precioNuevo = Number(entity.precio ?? 0);
+    const huboCambioDePrecio = precioAnterior !== precioNuevo;
+
+    if (huboCambioDePrecio && !dto.motivoCambioPrecio?.trim()) {
+      throw new BadRequestException(
+        "Debe ingresar un motivo para el cambio de precio",
+      );
+    }
+    if (huboCambioDePrecio) {
+      await this.eventEmitter.emitAsync(
+        "producto.precio.modificado",
+        new PrecioModificadoEvent(
+          entity.id,
+          precioNuevo,
+          precioAnterior,
+          "Actualización individual",
+          dto.motivoCambioPrecio?.trim() ?? "",
+          //?.trim() ejecuta trim() solamente si hay un motivo.
+         //?? "" usa texto vacío si no hay motivo.
+          usuario.id,
+        ),
+      );
+    }
 
     return MessageFrontUtils.createSimple(
       `${this.ENTITY_NAME}`,
