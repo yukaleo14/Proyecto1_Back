@@ -4,6 +4,8 @@ import { IProductoRepository } from '../interfaces/producto.repository-interface
 import { Producto } from '../entities/producto.entity';
 import { ResultadoSimulacionDto } from '../../dto/resultado-simulacion.dto';
 import { OperacionInvalidaException } from '../exceptions/operacion-invalida.exception';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PrecioModificadoEvent } from '../events/precio-modificado.event';
 
 /**
  * Servicio de dominio que orquesta la actualización en lote de precios.
@@ -25,6 +27,7 @@ export class ActualizadorMasivoPreciosService {
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -152,18 +155,27 @@ export class ActualizadorMasivoPreciosService {
     // Validar invariante ANTES de abrir la transacción
     this.validarInvariante(simulacion);
 
+    const eventosAEmitir: PrecioModificadoEvent[] = [];
+
     // Aplicar los cambios a las entidades instanciadas para asegurar el recálculo de margen
-    // y para que el Subscriber reciba la entidad completa.
     const productosAActualizar = simulacion.map((s) => {
       const p = productos.find((prod) => prod.id === s.productoId)!;
+      const precioAnterior = p.precio ?? 0;
       p.actualizarPrecio(s.precioProyectado);
       
-      // Asignar auditoría temporal para que el HistoricoPrecioSubscriber pueda leerlo
-      if (usuarioId) {
-        p.usuarioUpdated = { id: usuarioId } as any;
-      }
-      (p as any)._tipoOperacionTemporal = `Ajuste Masivo (${modo})`;
-      (p as any)._motivoTemporal = `Ajuste masivo de ${modo}: ${valor}`;
+      const tipoOperacion = `Ajuste Masivo (${modo})`;
+      const motivo = `Ajuste masivo de ${modo}: ${valor}`;
+
+      eventosAEmitir.push(
+        new PrecioModificadoEvent(
+          p.id,
+          s.precioProyectado,
+          precioAnterior,
+          tipoOperacion,
+          motivo,
+          usuarioId,
+        ),
+      );
       
       return p;
     });
@@ -171,6 +183,11 @@ export class ActualizadorMasivoPreciosService {
     // Transacción atómica: si cualquier update falla → rollback automático
     await this.dataSource.transaction(async (manager) => {
       await this.productoRepository.actualizarPrecioMasivo(productosAActualizar, manager);
+    });
+
+    // Emitir eventos asíncronamente después del commit exitoso
+    eventosAEmitir.forEach((evento) => {
+      this.eventEmitter.emit('producto.precio.modificado', evento);
     });
 
     this.logger.log(`[Masivo] ${productosAActualizar.length} productos actualizados exitosamente.`);
