@@ -1,10 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   Min,
 } from 'class-validator';
@@ -130,6 +131,22 @@ export class GetProductoDto {
 
   @IsString()
   codigoReferencia: string;
+
+  @ApiPropertyOptional({ example: 1, description: 'Valor numérico de la presentación' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  presentacionValor?: number | null;
+
+  @ApiPropertyOptional({ example: 'L', description: 'Unidad de la presentación' })
+  @IsOptional()
+  @IsString()
+  presentacionUnidad?: string | null;
+
+  @ApiPropertyOptional({ example: '1 L', description: 'Presentación lista para mostrar' })
+  @IsOptional()
+  @IsString()
+  presentacionDescripcion?: string | null;
 
 
 }
