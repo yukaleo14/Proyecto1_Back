@@ -231,7 +231,7 @@ describe('Aggregate Producto: cambiarPresentacion()', () => {
     ).toThrow(DatosProductoInvalidosException);
     expect(() =>
       producto.cambiarPresentacion({ valor: 1, unidad: 'L' } as any),
-    ).toThrow('El argumento debe ser una instancia válida de Presentacion.');
+    ).toThrow('El argumento debe ser una instancia válida de Presentacion o texto (ej. "2L").');
   });
 
   it('getPresentacion() debe reconstruir el VO Presentacion desde la persistencia correctamente', () => {
