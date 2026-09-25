@@ -10,6 +10,7 @@ import {
   IsInt,
   IsEnum,
   IsPositive,
+  Min,
 } from 'class-validator';
 import { AlicuotaIva } from 'src/modules/organizacion/enums/alicuota-iva.enum';
 
@@ -53,10 +54,12 @@ export class CreateProductoDto {
 
   @IsOptional()
   @IsInt()
+  @Min(0, { message: 'El stock mínimo no puede ser negativo.' })
   stockMinimo?: number;
 
   @IsOptional()
   @IsInt()
+  @Min(0, { message: 'El stock no puede ser negativo.' })
   stock?: number;
 
   @IsOptional()
@@ -76,6 +79,7 @@ export class CreateProductoDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'El costo no puede ser negativo.' })
   costo?: number;
 
   @IsBoolean()
@@ -83,10 +87,12 @@ export class CreateProductoDto {
 
   @IsOptional()
   @IsInt()
+  @Min(1, { message: 'La cantidad por pack debe ser mayor a 0.' })
   cantidadPorPack?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'El costo en dólares no puede ser negativo.' })
   costoDolar?: number;
 
   @IsNotEmpty({ message: 'La linea es obligatoria.' })
@@ -101,10 +107,12 @@ export class CreateProductoDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'El porcentaje de ganancia no puede ser negativo.' })
   porcentaje?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0, { message: 'El precio no puede ser negativo.' })
   precio: number;
 
   createdAt?: Date;
