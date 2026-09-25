@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Delete,
@@ -173,6 +174,16 @@ export class ProductoController {
     @Body() updateDto: UpdateProductoDto,
   ) {
     this.logger.log(`Actualizando  ${this.ENTITY_NAME} con ID: ${id}`);
+    return this.service.update(id, updateDto);
+  }
+
+  @Patch(':id/precios')
+  @Roles('Root', 'Administrador', 'Empleado')
+  updatePrecios(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: UpdateProductoDto,
+  ) {
+    this.logger.log(`Actualizando precios de ${this.ENTITY_NAME} con ID: ${id}`);
     return this.service.update(id, updateDto);
   }
 
