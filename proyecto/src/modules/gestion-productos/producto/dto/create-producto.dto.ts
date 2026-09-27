@@ -11,6 +11,7 @@ import {
   IsEnum,
   IsPositive,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { AlicuotaIva } from 'src/modules/organizacion/enums/alicuota-iva.enum';
 
@@ -86,6 +87,7 @@ export class CreateProductoDto {
   utilizaPack: boolean;
 
   @IsOptional()
+  @ValidateIf((o) => o.utilizaPack)
   @IsInt()
   @Min(1, { message: 'La cantidad por pack debe ser mayor a 0.' })
   cantidadPorPack?: number;
