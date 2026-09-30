@@ -1,15 +1,32 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AlicuotaIvaController } from './alicuota-iva.controller';
-import { AlicuotaIvaService } from '../../alicuota-iva.service';
+import { AlicuotaIvaService } from '../services/alicuota-iva.service';
+import { AuthGuard } from 'src/modules/gestion-usuario/auth/auth.guard';
 
 describe('AlicuotaIvaController', () => {
   let controller: AlicuotaIvaController;
 
+  const mockAlicuotaIvaService = {
+    create: jest.fn(),
+    findAll: jest.fn(),
+    findOne: jest.fn(),
+    update: jest.fn(),
+    remove: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AlicuotaIvaController],
-      providers: [AlicuotaIvaService],
-    }).compile();
+      providers: [
+        {
+          provide: AlicuotaIvaService,
+          useValue: mockAlicuotaIvaService,
+        },
+      ],
+    })
+      .overrideGuard(AuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AlicuotaIvaController>(AlicuotaIvaController);
   });

@@ -203,3 +203,72 @@ Todos los endpoints tienen el prefijo `/api`.
 - **DTOs**: validados con `class-validator`, con whitelist estricto
 - **Excepciones**: manejadas por filtro global (`GlobalExceptionFilter`)
 - **Body limit**: 50MB para JSON y URL-encoded
+
+---
+
+## Testing y Pruebas Automatizadas
+
+El backend cuenta con una suite completa de pruebas automatizadas construida con **Jest** y el módulo de testing oficial de **NestJS** (`@nestjs/testing`).
+
+### Tipos de Tests Implementados
+
+1. **Pruebas de Controladores (`*.controller.spec.ts`)**
+   - Verifican la instanciación e inyección de dependencias de la capa HTTP.
+   - Validan el aislamiento de guardianes de seguridad (`AuthGuard`) mediante mocks (`overrideGuard`).
+   - Prueban la integración de pipes de transformación y normalización en parámetros de consulta y cuerpo de peticiones.
+
+2. **Pruebas de Servicios de Aplicación (`*.service.spec.ts`)**
+   - Verifican la lógica de negocio y la orquestación entre diferentes módulos.
+   - Utilizan mocks para aislar repositorios (TypeORM), servicios de auditoría y servicios secundarios.
+   - Comprueban el manejo de consultas y filtrados complejos (como en `ProductoQueryService` con CQRS).
+
+3. **Pruebas de Dominio y DDD (`*.aggregate.spec.ts`, `*.spec.ts`)**
+   - **Agregados y Entidades**: Verifican las reglas de consistencia interna e invariantes de negocio de entidades como `Producto`, `Linea` y `SuperLinea`.
+   - **Value Objects**: Pruebas unitarias de invariantes y estados válidos/inválidos (por ejemplo, `Presentacion`).
+   - **Eventos de Dominio**: Pruebas sobre la emisión y manejo de eventos de dominio (como `StockActualizadoEvent`, `StockBajoEvent` y movimientos de stock).
+
+4. **Pruebas de Servicios de Dominio (`*.service.spec.ts`)**
+   - Evalúan algoritmos y cálculos de negocio puros sin acoplamiento a infraestructura (por ejemplo, `ActualizadorMasivoPreciosService` simulando aumentos masivos porcentuales y montos fijos).
+
+5. **Pruebas de Filtros y Pipes Transversales (`*.filter.spec.ts`, `*.pipe.spec.ts`)**
+   - Validaciones de normalización de cadenas de búsqueda (`NormalizeDenominationsSearchPipe`).
+   - Captura y transformación de excepciones de dominio a respuestas HTTP estandarizadas (`DomainExceptionFilter`).
+
+---
+
+### Cómo Correr los Tests
+
+> **Importante:** Todos los comandos de prueba deben ejecutarse desde la carpeta `proyecto`.
+
+```bash
+# 1. Ingresar a la carpeta del proyecto backend
+cd proyecto
+```
+
+#### Comandos Disponibles
+
+- **Ejecutar todos los tests:**
+  ```bash
+  npm run test
+  ```
+  *(o `npm test`)*
+
+- **Ejecutar tests en modo observador (re-ejecuta al guardar cambios):**
+  ```bash
+  npm run test:watch
+  ```
+
+- **Ejecutar tests con reporte de cobertura de código:**
+  ```bash
+  npm run test:cov
+  ```
+
+- **Ejecutar un archivo de test específico:**
+  ```bash
+  npm test -- actualizador-masivo-precios.service.spec.ts
+  ```
+  o usando `npx jest`:
+  ```bash
+  npx jest src/modules/gestion-productos/producto/domain/entities/presentacion.spec.ts
+  ```
+

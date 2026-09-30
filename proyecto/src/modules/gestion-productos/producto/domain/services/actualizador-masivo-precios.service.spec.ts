@@ -4,6 +4,7 @@ import { ActualizadorMasivoPreciosService } from './actualizador-masivo-precios.
 import { IProductoRepository } from '../interfaces/producto.repository-interface';
 import { OperacionInvalidaException } from '../exceptions/operacion-invalida.exception';
 import { Producto } from '../entities/producto.entity';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ describe('ActualizadorMasivoPreciosService', () => {
         ActualizadorMasivoPreciosService,
         { provide: 'IProductoRepository', useValue: mockRepository },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: EventEmitter2, useValue: { emit: jest.fn(), emitAsync: jest.fn() } },
       ],
     }).compile();
 
@@ -125,7 +127,7 @@ describe('ActualizadorMasivoPreciosService', () => {
       await service.ejecutarAjustePorcentajeGlobal(10, 1);
 
       expect(mockRepository.actualizarPrecioMasivo).toHaveBeenCalledWith(
-        [{ id: 1, precio: 110 }],
+        [expect.objectContaining({ id: 1, precio: 110 })],
         expect.anything(),
       );
     });

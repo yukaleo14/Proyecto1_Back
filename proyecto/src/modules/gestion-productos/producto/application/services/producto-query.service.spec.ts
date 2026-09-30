@@ -90,6 +90,7 @@ describe('ProductoQueryService: CQRS Read Model & Consultas Dinámicas Combinada
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
       getManyAndCount: jest.fn().mockImplementation(async () => {
         // Filtrado real en memoria simulando SQL
         let filtered = [...mockDataset];
@@ -123,7 +124,11 @@ describe('ProductoQueryService: CQRS Read Model & Consultas Dinámicas Combinada
       createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
     } as unknown as jest.Mocked<Repository<Producto>>;
 
-    service = new ProductoQueryService(mockRepository);
+    const mockHistoricoRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+    } as unknown as jest.Mocked<Repository<any>>;
+
+    service = new ProductoQueryService(mockRepository, mockHistoricoRepository);
   });
 
   describe('Criterio de Aceptación 1: Búsqueda insensible a mayúsculas/minúsculas', () => {
